@@ -1637,7 +1637,7 @@ stock INI::Replace(const src[],dest[],const ReplacementFunction[]="",extra=0,boo
 						{
 							if(CallLocalFunction(ReplacementFunction,"s",rtext))
 							{
-							    j += pos - i - strcat(dest,"TEST",sz_dest) + 2;
+							    j += pos - i - strcat(dest,INI_ReplacementText,sz_dest) + 2;
 								i = pos;
 							}
 							else
