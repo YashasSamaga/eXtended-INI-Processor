@@ -22,9 +22,11 @@
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
-//Changes:
-//First Official Release
-//
+//Changes from 1.0.0 to 1.0.1
+//*Added SetReplacemenText
+//*Added new setting INI_MAX_REPLACEMENT_TEXT
+//*Replace now works differently
+// 
 //Credits:
 //Yashas <yashas_2010@yahoo.com>
 //
