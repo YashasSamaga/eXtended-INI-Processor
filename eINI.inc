@@ -55,6 +55,7 @@
  native _:INI::ReadEnum(INI:filehandle,enum_entity[],enum_size,const key[]="",const section[]="",keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key));
  native _:INI::ReadFormat(INI:filehandle,sectionid,const format[],{Float,_}:...);
  native _:INI::Replace(const src[],dest[],const ReplacementFunction[]="",extra=0,bool:pass_extra=false,sz=sizeof(src),sz_dest=sizeof(dest),sz_rf=sizeof(ReplacementFunction));
+ native _:INI::SetReplacementString(src[]);
  native
  native _:INI::WriteString(INI:filehandle,const data[],const key[],const section[],keyid=-1,sectionid=-1,data_size=sizeof(data),section_size=sizeof(section),key_size=sizeof(key));
  native _:INI::WriteBool(INI:filehandle,bool:variable,const key[],const section[],keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key));
@@ -157,6 +158,11 @@
 #else
 	#assert (INI_MAX_REPLACEMENT_TAG > 0)
 #endif
+#if !defined INI_MAX_REPLACEMENT_TEXT
+	#define INI_MAX_REPLACEMENT_TEXT		64 //Maximum Length of Replacement Text
+#else
+	#assert (INI_MAX_REPLACEMENT_TEXT < INI_MAX_KEY_VALUE_LENGTH)
+#endif
 #if !defined INI_FLOATING_POINT_PRECISION
 	#define INI_FLOATING_POINT_PRECISION	16 //Number of cells need to store the largest floating point number
 #else
@@ -255,6 +261,7 @@
 #endif
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define eINI_IsValidHandle(%0) (INI:INI_MAX_MULTI_FILES > %0 > INI:-1)
+#define eINI_SetReplacementString(%0) memcpy(INI_ReplacementText,%0,0,sizeof(%0)*4)
 
 #define IsFileHandleInUse(%0) (INI_File[%0][E_INI_FILE_mode])
 #define InvalidateFileHandle(%0) (INI_File[%0][E_INI_FILE_mode] = INI_UNUSED)
@@ -307,6 +314,8 @@ static stock INI_File[INI_MAX_MULTI_FILES][E_INI_FILE];
 static stock INI_Line[INI_MAX_MULTI_FILES*INI_MAX_LINES][E_INI_LINE];
 static stock INI_Section[INI_MAX_MULTI_FILES*INI_MAX_SECTIONS][E_INI_SECTION];
 static stock INI_Key[INI_MAX_MULTI_FILES*INI_MAX_KEYS][E_INI_KEY];
+
+new INI_ReplacementText[INI_MAX_REPLACEMENT_TEXT];
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 stock BinaryToDecimal(const str[])
 {
@@ -1612,10 +1621,32 @@ stock INI::Replace(const src[],dest[],const ReplacementFunction[]="",extra=0,boo
 		        	else
 		        	{
 						strmid(rtext,src,++i,pos);
-			        	if(pass_extra)	valstr(rtext,CallLocalFunction(ReplacementFunction,"is",extra,rtext));
-						else	valstr(rtext,CallLocalFunction(ReplacementFunction,"s",rtext));
-						j += pos - i - strcat(dest,rtext,sz_dest) + 2;
-						i = pos;
+			        	if(pass_extra)
+						{
+							if(CallLocalFunction(ReplacementFunction,"is",extra,rtext))
+							{
+                                j += pos - i - strcat(dest,INI_ReplacementText,sz_dest) + 2;
+								i = pos;
+							}
+							else
+							{
+							    dest[i-j] = '[';
+								continue;
+							}
+						}
+						else
+						{
+							if(CallLocalFunction(ReplacementFunction,"s",rtext))
+							{
+							    j += pos - i - strcat(dest,"TEST",sz_dest) + 2;
+								i = pos;
+							}
+							else
+							{
+							    dest[i-j] = '[';
+								continue;
+							}
+						}
 					}
 				}
 				else dest[i - j] = src[i];
