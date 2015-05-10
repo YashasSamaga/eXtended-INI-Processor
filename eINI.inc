@@ -261,7 +261,6 @@
 #endif
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define eINI_IsValidHandle(%0) (INI:INI_MAX_MULTI_FILES > %0 > INI:-1)
-#define eINI_SetReplacementText(%0) memcpy(INI_ReplacementText,%0,0,sizeof(%0)*4)
 
 #define IsFileHandleInUse(%0) (INI_File[%0][E_INI_FILE_mode])
 #define InvalidateFileHandle(%0) (INI_File[%0][E_INI_FILE_mode] = INI_UNUSED)
@@ -1658,6 +1657,10 @@ stock INI::Replace(const src[],dest[],const ReplacementFunction[]="",extra=0,boo
 	    }
 	}
 	return 0;
+}
+stock INI::SetReplacementText(const text[],sz=sizeof(text))
+{
+ 	return memcpy(INI_ReplacementText,text,0,sz*4 + 4);
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /*******************************************************************************************************************************
