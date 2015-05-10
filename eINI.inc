@@ -261,7 +261,7 @@
 #endif
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define eINI_IsValidHandle(%0) (INI:INI_MAX_MULTI_FILES > %0 > INI:-1)
-#define eINI_SetReplacementString(%0) memcpy(INI_ReplacementText,%0,0,sizeof(%0)*4)
+#define eINI_SetReplacementText(%0) memcpy(INI_ReplacementText,%0,0,sizeof(%0)*4)
 
 #define IsFileHandleInUse(%0) (INI_File[%0][E_INI_FILE_mode])
 #define InvalidateFileHandle(%0) (INI_File[%0][E_INI_FILE_mode] = INI_UNUSED)
