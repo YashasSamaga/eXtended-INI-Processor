@@ -100,7 +100,7 @@ forward Load_SMALL2(const key[],const value[]);
 public ReplaceFunc(const text[])
 {
 	INI::SetReplacementText("50");
-	return 0;
+	return 1;
 }
 public Load_(const key[],const value[]) //Global Section of SMALL.INI
 {
