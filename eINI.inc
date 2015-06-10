@@ -1086,7 +1086,7 @@ stock INI::ReadString(INI:filehandle,result[],const key[],const section[]="",key
 	   		return INI_KEY_NOT_FOUND;
 		}
 		else if(sectionid > -1)
-		{
+		{r
 		  	if(sectionid <= INI_File[_:filehandle][E_INI_FILE_LoadedSections])
 		    {
 		        new i = INI_Section[INI_MAX_SECTIONS*_:filehandle + sectionid][E_INI_SECTION_keystart];
@@ -1202,8 +1202,8 @@ stock INI::ReadBool(INI:filehandle,&bool:variable,const key[]="",const section[]
 	new ret_num = INI::ReadString(filehandle,result,key,section,keyid,sectionid,sizeof(result),section_size,key_size);
 	if(ret_num > -1)
 	{
-	    if(strcmp(result,INI_WRITE_TRUE_VALUE,true) || strcmp(result,"1")) variable = true;
-		else if(strcmp(result,INI_WRITE_FALSE_VALUE,true) && !strcmp(result,"0")) variable = false;
+	    if(!strcmp(result,INI_WRITE_TRUE_VALUE,true) || !strcmp(result,"1")) variable = true;
+		else if(!strcmp(result,INI_WRITE_FALSE_VALUE,true) || !strcmp(result,"0")) variable = false;
 		else return INI_ERR_INVALID_BOOL;
 	}
 	return ret_num;
