@@ -4,7 +4,7 @@
 //Known as eINI in short, is an INI File Processor, which parses any INI File which follows the required
 //standards and makes reading, writing and many other INI related manipulations easier.
 //
-//Version:1.0
+//Version:1.0.4
 //
 //License:
 //Copyright (C) <2015>  <Yashas Samaga>
