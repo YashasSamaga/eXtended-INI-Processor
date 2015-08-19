@@ -4,7 +4,7 @@
 //Known as eINI in short, is an INI File Processor, which parses any INI File which follows the required
 //standards and makes reading, writing and many other INI related manipulations easier.
 //
-//Version:1.0
+//Version:1.0.5
 //
 //License:
 //Copyright (C) <2015>  <Yashas Samaga>
@@ -21,9 +21,6 @@
 //
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-//
-//Changes:
-//First Official Release
 //
 //Credits:
 //Yashas <yashas_2010@yahoo.com>
