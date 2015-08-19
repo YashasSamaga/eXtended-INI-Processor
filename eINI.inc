@@ -4,7 +4,7 @@
 //Known as eINI in short, is an INI File Processor, which parses any INI File which follows the required
 //standards and makes reading, writing and many other INI related manipulations easier.
 //
-//Version:1.0.4
+//Version:1.0
 //
 //License:
 //Copyright (C) <2015>  <Yashas Samaga>
@@ -22,11 +22,9 @@
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
-//Changes from 1.0.0 to 1.0.1
-//*Added SetReplacemenText
-//*Added new setting INI_MAX_REPLACEMENT_TEXT
-//*Replace now works differently
-// 
+//Changes:
+//First Official Release
+//
 //Credits:
 //Yashas <yashas_2010@yahoo.com>
 //
@@ -1055,7 +1053,7 @@ stock INI::ReadString(INI:filehandle,result[],const key[],const section[]="",key
 	{
 	    if(--section_size) //removing the null character
 	    {
-	        for(new i = INI_MAX_SECTIONS*_:filehandle,j = i + INI_File[_:filehandle][E_INI_FILE_LoadedSections];i <= j;i++)
+	        for(new i = INI_MAX_SECTIONS*_:filehandle + 1,j = i + INI_File[_:filehandle][E_INI_FILE_LoadedSections];i <= j;i++)
 	        {
 	            if(INI_Section[i][E_INI_SECTION_name_size] == section_size)
 	            {
@@ -1086,7 +1084,7 @@ stock INI::ReadString(INI:filehandle,result[],const key[],const section[]="",key
 	   		return INI_KEY_NOT_FOUND;
 		}
 		else if(sectionid > -1)
-		{r
+		{
 		  	if(sectionid <= INI_File[_:filehandle][E_INI_FILE_LoadedSections])
 		    {
 		        new i = INI_Section[INI_MAX_SECTIONS*_:filehandle + sectionid][E_INI_SECTION_keystart];
@@ -1203,7 +1201,7 @@ stock INI::ReadBool(INI:filehandle,&bool:variable,const key[]="",const section[]
 	if(ret_num > -1)
 	{
 	    if(!strcmp(result,INI_WRITE_TRUE_VALUE,true) || !strcmp(result,"1")) variable = true;
-		else if(!strcmp(result,INI_WRITE_FALSE_VALUE,true) || !strcmp(result,"0")) variable = false;
+		else if(!strcmp(result,INI_WRITE_FALSE_VALUE,true) && !strcmp(result,"0")) variable = false;
 		else return INI_ERR_INVALID_BOOL;
 	}
 	return ret_num;
@@ -1739,7 +1737,7 @@ stock INI::WriteString(INI:filehandle,const data[],const key[],const section[],k
 					}
 	            }
 	        }
-	        if((i = ini_internal_CreateSection(filehandle,section,section_size)) > -1)
+	        if((i = ini_internal_CreateSection(filehandle,section,section_size+1)) > -1)
 	        	return ini_internal_CreateKey(filehandle,key,data,i,key_size);
 			else return INI_SECTION_CREATE_FAILED;
 		}
@@ -2537,6 +2535,7 @@ static stock ini_internal_CreateSection(INI:filehandle,const section[],section_s
 static stock ini_internal_CreateKey(INI:filehandle,const key[],const value[],sectionid,key_size=sizeof(key))
 {
     new kid,j,i;
+  
     if(INI_File[_:filehandle][E_INI_FILE_lines] < (INI_MAX_LINES-1))
 	    i = INI_MAX_LINES*_:filehandle + ++INI_File[_:filehandle][E_INI_FILE_lines];
 	else
