@@ -4,7 +4,7 @@
 //Known as eINI in short, is an INI File Processor, which parses any INI File which follows the required
 //standards and makes reading, writing and many other INI related manipulations easier.
 //
-//Version:1.0.5
+//Version:1.1
 //
 //License:
 //Copyright (C) <2015>  <Yashas Samaga>
@@ -239,23 +239,8 @@
 #define INI_DEFAULT_FILL -1
 #define INI_LINKED_LIST_NULL -1
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#if !defined INI_DISABLE_ERRORS
-	#define INI_Error(%0); printf(%0);
-#else
-	#define INI_Error(%0);
-#endif
-
-#if !defined INI_DISABLE_WARNINGS
- 	#define INI_Warning(%0); printf(%0);
-#else
-	#define INI_Warning(%0);
-#endif
-
-#if !defined INI_DISABLE_NOTICES
-	#define INI_Notice(%0); printf(%0);
-#else
-	#define INI_Notice(%0);
-#endif
+#define INI_LOG_FILE "eini_log.txt"
+#define DEFAULT_INVALID_HANDLE INI:-4081998
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define eINI_IsValidHandle(%0) (INI:INI_MAX_MULTI_FILES > %0 > INI:-1)
 
@@ -267,6 +252,111 @@
 #else
     #define IsValidNameChar(%0) (('A' <= %0 <= 'Z') || ('a' <= %0 <= 'z') || (%0 == '_') || ('0' <= %0 <= '9'))
 #endif
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#if defined INI_USE_LOG_FILE
+	#if !defined INI_DISABLE_ERRORS
+		#define INI_Error(%0);  _INI_Log(%0);
+	#else
+		#define INI_Error(%0);
+	#endif
+
+	#if !defined INI_DISABLE_WARNINGS
+	 	#define INI_Warning(%0);  _INI_Log(%0);
+	#else
+		#define INI_Warning(%0);
+	#endif
+
+	#if !defined INI_DISABLE_NOTICES
+		#define INI_Notice(%0); _INI_Log(%0);
+	#else
+		#define INI_Notice(%0);
+	#endif
+#else
+	#if !defined INI_DISABLE_ERRORS
+		#define INI_Error(%0,%1); printf(%1);
+	#else
+		#define INI_Error(%0);
+	#endif
+
+	#if !defined INI_DISABLE_WARNINGS
+	 	#define INI_Warning(%0,%1); printf(%1);
+	#else
+		#define INI_Warning(%0);
+	#endif
+
+	#if !defined INI_DISABLE_NOTICES
+		#define INI_Notice(%0,%1); printf(%1);
+	#else
+		#define INI_Notice(%0);
+	#endif
+#endif
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+forward i_eINI_SYSREQ_FIX();
+public i_eINI_SYSREQ_FIX()
+{
+	format("",0,"");
+}
+
+#define BYTES_PER_CELL 				4
+stock _INI_Log(INI:handle, fstring[], {Float, _}:...)
+{
+	#pragma unused handle
+
+    static const STATIC_ARGS = 2;
+    new n = (numargs() - STATIC_ARGS) * BYTES_PER_CELL;
+
+    new File:LogFile = fopen(INI_LOG_FILE,io_append);
+
+    if(n)
+    {
+        new message[256],arg_start,arg_end;
+        #emit CONST.alt        fstring
+        #emit LCTRL          5
+        #emit ADD
+        #emit STOR.S.pri        arg_start
+
+        #emit LOAD.S.alt        n
+        #emit ADD
+        #emit STOR.S.pri        arg_end
+        do
+        {
+            #emit LOAD.I
+            #emit PUSH.pri
+            arg_end -= BYTES_PER_CELL;
+            #emit LOAD.S.pri      arg_end
+        }
+        while(arg_end > arg_start);
+
+        #emit PUSH.S          fstring
+        #emit PUSH.C          256
+        #emit PUSH.ADR         message
+
+        n += BYTES_PER_CELL * 3;
+        #emit PUSH.S          n
+        #emit SYSREQ.C         format
+
+        n += BYTES_PER_CELL;
+        #emit LCTRL          4
+        #emit LOAD.S.alt        n
+        #emit ADD
+        #emit SCTRL          4
+
+        if(LogFile)
+        {
+            new str[256],hr,mins,sec,year,month,day;
+            gettime(hr,mins,sec);
+            getdate(year,month,day);
+            format(str,sizeof(str),"[%i:%i:%i][%i:%i:%i]%s\r\n",day,month,year,hr,mins,sec,message);
+            fwrite(LogFile,str);
+            fclose(LogFile);
+        }
+        else
+        {
+            printf("Could not open log file");
+            print(message);
+        }
+    }
+}
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 enum E_INI_FILE
 {
@@ -285,12 +375,11 @@ enum E_INI_LINE
 	E_INI_LINE_id,
 	E_INI_LINE_previous,
 	E_INI_LINE_next,
-	E_INI_LINE_Content[INI_MAX_LINE_LENGTH] 
+	E_INI_LINE_Content[INI_MAX_LINE_LENGTH]
 }
 enum E_INI_SECTION
 {
     E_INI_SECTION_name[INI_MAX_SECTION_NAME_LENGTH],
-    E_INI_SECTION_name_size,
 	E_INI_SECTION_sectionid,
 	E_INI_SECTION_lineid,
 	E_INI_SECTION_keystart
@@ -299,7 +388,6 @@ enum E_INI_KEY
 {
     E_INI_KEY_name[INI_MAX_KEY_NAME_LENGTH],
     E_INI_KEY_value[INI_MAX_KEY_VALUE_LENGTH],
-    E_INI_KEY_name_size,
 	E_INI_KEY_sectionid,
 	E_INI_KEY_lineid,
 	E_INI_KEY_previous,
@@ -313,39 +401,39 @@ static stock INI_Key[INI_MAX_MULTI_FILES*INI_MAX_KEYS][E_INI_KEY];
 
 new INI_ReplacementText[INI_MAX_REPLACEMENT_TEXT];
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-stock BinaryToDecimal(const str[])
+stock intrl_EINI_BinaryToDecimal(const str[])
 {
 	new value = 0,i;
 	if((str[0] | 0x20) == 'b' ) i = 1;
 	for(;;)
 	{
-	    switch(str[i++])
-	    {
-	        case '1': value = (value<<1) | 1;
+		switch(str[i++])
+		{
+			case '1': value = (value<<1) | 1;
 			case '0': value <<= 1;
 			case 'b','B',' ': continue;
-	        default: break;
-	    }
+			default: break;
+		}
 	}
 	return value;
 }
-stock HexadecimalToDecimal(const str[])
+stock intrl_EINI_HexadecimalToDecimal(const str[])
 {
     new value = 0,i = -1;
     if(str[0] == '0' && ((str[1] | 0x20) == 'x')) i = 1;
-    
+
 	for(;;)
-	{
-	    switch(str[++i])
-	    {
-	        case '0'..'9': value = (value<<4) | (str[i] - '0');
-			case 'a'..'f': value = (value<<4) | (str[i] - 'a' + 10);
-			case 'A'..'F': value = (value<<4) | (str[i] - 'A' + 10);
-			case ' ': continue;
-	        default: break;
-	    }
-	}
-	return value;
+    {
+      	switch(str[++i])
+        {
+          	case '0'..'9': value = (value<<4) | (str[i] - '0');
+            case 'a'..'f': value = (value<<4) | (str[i] - 'a' + 10);
+            case 'A'..'F': value = (value<<4) | (str[i] - 'A' + 10);
+            case ' ': continue;
+            default: break;
+        }
+    }
+    return value;
 }
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /*******************************************************************************************************************************
@@ -367,42 +455,40 @@ stock HexadecimalToDecimal(const str[])
 *******************************************************************************************************************************/
 stock INI:INI::CreateINI(const fname[])
 {
+	static j,tmp;
 	if(fexist(fname))
 	{
-	    INI_Error("[INI]CreateINI:File already exists(%s)",fname);
+	    INI_Error(DEFAULT_INVALID_HANDLE,"[INI]CreateINI:File already exists(%s)",fname);
 	    return INI:INI_ERR_FILE_ALREADY_EXISTS;
 	}
-	else
+
+	for(new i = 0;i < INI_MAX_MULTI_FILES;i++)
 	{
-		for(new i = 0;i < INI_MAX_MULTI_FILES;i++)
+		if(IsFileHandleInUse(i)) continue;
+
+	    for(j = INI_MAX_KEYS*i,tmp = INI_MAX_KEYS*(i+1);j < tmp;j++)
+			INI_Key[j][E_INI_KEY_sectionid] = INI_DEFAULT_FILL;
+
+	    for(j = INI_MAX_SECTIONS*i,tmp = INI_MAX_SECTIONS*(i+1);j < tmp;j++)
+	        INI_Section[j][E_INI_SECTION_sectionid] = INI_DEFAULT_FILL;
+
+		for(j = INI_MAX_LINES*i,tmp = INI_MAX_LINES*(i+1);j < tmp;j++)
 		{
-			if(!IsFileHandleInUse(i))
-			{
-			    new tmp = INI_MAX_KEYS*(i+1);
-			    for(new j = INI_MAX_KEYS*i;j < tmp;j++)
-       				INI_Key[j][E_INI_KEY_sectionid] = INI_DEFAULT_FILL;
-                tmp = INI_MAX_SECTIONS*(i+1);
-			    for(new j = INI_MAX_SECTIONS*i;j < tmp;j++)
-			        INI_Section[j][E_INI_SECTION_sectionid] = INI_DEFAULT_FILL;
-			    tmp = INI_MAX_LINES*(i+1);
-				for(new j = INI_MAX_LINES*i;j < tmp;j++)
-				{
-			        INI_Line[j][E_INI_LINE_type] = INI_DEFAULT_FILL;
-			        INI_Line[j][E_INI_LINE_previous] = INI_Line[j][E_INI_LINE_next] = INI_LINKED_LIST_NULL;
-				}
-				INI_File[i][E_INI_FILE_mode] = INI_WRITE_NEW;
-				INI_File[i][E_INI_FILE_LoadedSections] = INI_File[i][E_INI_FILE_LoadedKeys] = 0;
-				INI_File[i][E_INI_FILE_lines] = 1;
-				INI_File[i][E_INI_FILE_end_lineid] = INI_File[i][E_INI_FILE_start_lineid] = INI_MAX_LINES*i;
-				INI_Line[INI_MAX_LINES*i][E_INI_LINE_type] = INI_LINE_EOF;
-                INI_File[i][E_INI_FILE_parsed] = true;
-				strpack(INI_File[i][E_INI_FILE_filename],fname,INI_MAX_FILE_NAME_LENGTH);
-				return INI:i;
-			}
+	        INI_Line[j][E_INI_LINE_type] = INI_DEFAULT_FILL;
+	        INI_Line[j][E_INI_LINE_previous] = INI_Line[j][E_INI_LINE_next] = INI_LINKED_LIST_NULL;
 		}
-		INI_Error("[INI]CreateINI:Maximum Open Files Limit Reached(%s)",fname);
-		return INI:INI_ERR_MAX_FILE_LIMIT;
+				
+		INI_File[i][E_INI_FILE_mode] = INI_WRITE_NEW;
+		INI_File[i][E_INI_FILE_LoadedSections] = INI_File[i][E_INI_FILE_LoadedKeys] = 0;
+		INI_File[i][E_INI_FILE_lines] = 1;
+		INI_File[i][E_INI_FILE_end_lineid] = INI_File[i][E_INI_FILE_start_lineid] = INI_MAX_LINES*i;
+		INI_Line[INI_MAX_LINES*i][E_INI_LINE_type] = INI_LINE_EOF;
+        INI_File[i][E_INI_FILE_parsed] = true;
+		strpack(INI_File[i][E_INI_FILE_filename],fname,INI_MAX_FILE_NAME_LENGTH);
+		return INI:i;
 	}
+	INI_Error(DEFAULT_INVALID_HANDLE,"[INI]CreateINI:Maximum Open Files Limit Reached(%s)",fname);
+    return INI:INI_ERR_MAX_FILE_LIMIT;
 }
 /*******************************************************************************************************************************
 	<summary>OpenINI</summary>
@@ -424,48 +510,49 @@ stock INI:INI::CreateINI(const fname[])
 *******************************************************************************************************************************/
 stock INI:INI::OpenINI(const fname[],mode=INI_READ_WRITE)
 {
-	if(fexist(fname))
-	{
-   		#if !defined INI_DISABLE_WARNINGS
-			for(new i = 0;i < INI_MAX_MULTI_FILES;i++)
-			{
-				if(IsFileHandleInUse(i))
-					if(!strcmp(fname,INI_File[i][E_INI_FILE_filename]))
-					    INI_Warning("[INI]Warning:Creating another instance of the same file(%s)",fname);
-			}
-		#endif
-		for(new i = 0;i < INI_MAX_MULTI_FILES;i++)
-		{
-			if(!IsFileHandleInUse(i))
-			{
-			    new tmp = INI_MAX_KEYS*(i+1);
-			    for(new j = INI_MAX_KEYS*i;j < tmp;j++)
-			        INI_Key[j][E_INI_KEY_sectionid] = INI_DEFAULT_FILL;
-                tmp = INI_MAX_SECTIONS*(i+1);
-			    for(new j = INI_MAX_SECTIONS*i;j < tmp;j++)
-			        INI_Section[j][E_INI_SECTION_sectionid] = INI_DEFAULT_FILL;
-			    tmp = INI_MAX_LINES*(i+1);
-				for(new j = INI_MAX_LINES*i;j < tmp;j++)
-				{
-			        INI_Line[j][E_INI_LINE_type] = INI_DEFAULT_FILL;
-			        INI_Line[j][E_INI_LINE_previous] = INI_Line[j][E_INI_LINE_next] = INI_LINKED_LIST_NULL;
-				}
-		    	INI_File[i][E_INI_FILE_mode] = mode;
-				INI_File[i][E_INI_FILE_LoadedSections] = INI_File[i][E_INI_FILE_LoadedKeys] = INI_File[i][E_INI_FILE_lines] = 0;
-				INI_File[i][E_INI_FILE_end_lineid] = INI_File[i][E_INI_FILE_start_lineid] = INI_MAX_LINES*i;
-				INI_File[i][E_INI_FILE_parsed] = false;
-				strpack(INI_File[i][E_INI_FILE_filename],fname,INI_MAX_FILE_NAME_LENGTH);
-		 		return INI:i;
-			 }
-		}
-		INI_Error("[INI]OpenINI:Maximum Open Files Limit Reached(%s)",fname);
-		return INI:INI_ERR_MAX_FILE_LIMIT;
-	}
-	else
-	{
-	    INI_Error("[INI]OpenINI:File doesn't exist (%s)",fname);
-   		return INI:INI_ERR_FILE_DOES_NOT_EXIST;
-	}
+	static j,tmp;
+    if(!fexist(fname))
+    {
+     	INI_Error(INI:DEFAULT_INVALID_HANDLE,"[INI]OpenINI:File doesn't exist (%s)",fname);
+        return INI:INI_ERR_FILE_DOES_NOT_EXIST;
+    }
+
+	#if !defined INI_DISABLE_WARNINGS
+    for(new i = 0;i < INI_MAX_MULTI_FILES;i++)
+    {
+  		if(IsFileHandleInUse(i))
+			if(!strcmp(fname,INI_File[i][E_INI_FILE_filename]))
+            	INI_Warning(INI:DEFAULT_INVALID_HANDLE,"[INI]Warning:Creating another instance of the same file(%s)",fname);
+   	}
+   	#endif
+
+   	for(new i = 0;i < INI_MAX_MULTI_FILES;i++)
+   	{
+    	if(!IsFileHandleInUse(i))
+        {
+        	for(j = INI_MAX_KEYS*i,tmp = INI_MAX_KEYS*(i+1);j < tmp;j++)
+             	INI_Key[j][E_INI_KEY_sectionid] = INI_DEFAULT_FILL;
+
+            for(j = INI_MAX_SECTIONS*i,tmp = INI_MAX_SECTIONS*(i+1);j < tmp;j++)
+              	INI_Section[j][E_INI_SECTION_sectionid] = INI_DEFAULT_FILL;
+
+            INI_File[i][E_INI_FILE_end_lineid] = INI_File[i][E_INI_FILE_start_lineid] = j = INI_MAX_LINES*i;
+            INI_File[i][E_INI_FILE_mode] = mode;
+            INI_File[i][E_INI_FILE_LoadedSections] = INI_File[i][E_INI_FILE_LoadedKeys] = INI_File[i][E_INI_FILE_lines] = 0;
+            INI_File[i][E_INI_FILE_parsed] = false;
+
+            for(tmp = INI_MAX_LINES*(i+1);j < tmp;j++)
+            {
+               	INI_Line[j][E_INI_LINE_type] = INI_DEFAULT_FILL;
+                INI_Line[j][E_INI_LINE_previous] = INI_Line[j][E_INI_LINE_next] = INI_LINKED_LIST_NULL;
+            }
+
+            strpack(INI_File[i][E_INI_FILE_filename],fname,INI_MAX_FILE_NAME_LENGTH);
+            return INI:i;
+        }
+   	}
+  	INI_Error(INI:DEFAULT_INVALID_HANDLE,"[INI]OpenINI:Maximum Open Files Limit Reached(%s)",fname);
+   	return INI:INI_ERR_MAX_FILE_LIMIT;
 }
 /*******************************************************************************************************************************
 	<summary>CloseINI</summary>
@@ -489,9 +576,10 @@ stock INI:INI::OpenINI(const fname[],mode=INI_READ_WRITE)
 stock INI::CloseINI(INI:filehandle,bool:savebuffer=true)
 {
  	#if !defined INI_CAREFUL_MODE
-		if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error("[INI]CloseINI:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
-	    else { INI_Error("[INI]CloseINI:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
+		if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error(filehandle,"[INI]CloseINI:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
+	    else { INI_Error(filehandle,"[INI]CloseINI:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
    	#endif
+   	
 	if(savebuffer)
 		if(INI::WriteBuffer(filehandle) == INI_ERR_PARSING_FAILED)	return INI_ERR_PARSING_FAILED;
     InvalidateFileHandle(_:filehandle);
@@ -518,8 +606,8 @@ stock INI::CloseINI(INI:filehandle,bool:savebuffer=true)
 stock INI::WriteBuffer(INI:filehandle)
 {
 	#if !defined INI_CAREFUL_MODE
-		if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error("[INI]WriteBuffer:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
-	    else { INI_Error("[INI]WriteBuffer:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
+		if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error(filehandle,"[INI]WriteBuffer:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
+	    else { INI_Error(filehandle,"[INI]WriteBuffer:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
 	#endif
 
  	new str[INI_MAX_FILE_NAME_LENGTH];
@@ -530,7 +618,7 @@ stock INI::WriteBuffer(INI:filehandle)
     if(!INI_File[_:filehandle][E_INI_FILE_parsed])
 		if(INI::ParseINI(filehandle))
 		{
-		    INI_Error("[INI]WriteBuffer:Failed to parse file(%s)>>Write Aborted",str);
+		    INI_Error(filehandle,"[INI]WriteBuffer:Failed to parse file(%s)>>Write Aborted",str);
 			return INI_ERR_PARSING_FAILED;
 		}
 
@@ -543,7 +631,7 @@ stock INI::WriteBuffer(INI:filehandle)
     			fremove(str);
      	    if(!(wfile = fopen(str,io_write)))
 			{
-                INI_Error("[INI]WriteBuffer:Failed to create file(%s)",str);
+                INI_Error(filehandle,"[INI]WriteBuffer:Failed to create file(%s)",str);
 				return INI_ERR_FILE_CREATION_FAILED;
 			}
 	    }
@@ -553,13 +641,13 @@ stock INI::WriteBuffer(INI:filehandle)
     			fremove(str);
 			if(!(wfile = fopen(str,io_write)))
 			{
-                INI_Error("[INI]WriteBuffer:Failed to open file(%s) for writing.",str);
+                INI_Error(filehandle,"[INI]WriteBuffer:Failed to open file(%s) for writing.",str);
 				return INI_ERR_FAILED_TO_OPEN;
 			}
 	   	}
 	}
 	for(new i = INI_File[_:filehandle][E_INI_FILE_start_lineid];INI_Line[i][E_INI_LINE_type] != INI_LINE_EOF;i = INI_Line[i][E_INI_LINE_next])
-	{	fwrite(wfile,INI_Line[i][E_INI_LINE_Content]);	}
+		fwrite(wfile,INI_Line[i][E_INI_LINE_Content]);
 
 	fclose(wfile);
 	return 0;
@@ -575,6 +663,11 @@ stock INI::WriteBuffer(INI:filehandle)
     <param name="func_with_key">If false,first occurrence of %s in LoadFunction will be replaced with section name only
 									  If true,the first two occurrences of %s in LoadFunction will be replaced with section
 									  name followed by key name respectively (false by default)</param>
+	<param name="tradition_func">If true the section name and key name will be passed as arguments to the LoadFunction.
+								 The LoadFunction will be called as it is without any moidifications. (false by default)</param>
+    <param name="broadcast">If true the data will be sent to all running scripts.If set to false, only the local script
+	                        callbacks will be called. (false by deafult)</param>
+
 	<returns>
 		Returns error code if INI syntax was unacceptable
 		Returns 0 for normal execution
@@ -592,20 +685,34 @@ stock INI::WriteBuffer(INI:filehandle)
 		INI::ParseINI(myhandle,"Load_%s",true,playerid,true); //Parsing with dynamic loading with extra parameter
 		INI::ParseINI(myhandle,"Load_%s_%s",true,random_number,false,true); //Parsing with dynamic loading.The %s will be replaced with section and
 		                                 //key name
-		INI::ParseINI(myhandle,"Load_%s_%s",playerid,true,true); //Parsing with dynamic loading with extra paramter
+		INI::ParseINI(myhandle,"Load_%s_%s",true,playerid,true,true); //Parsing with dynamic loading with extra paramter
+		INI::ParseINI(myhandle,"LoadFunction",true,playerid,true,false,true); //Parsing with traditional dynamic loading with extra paramter
+        INI::ParseINI(myhandle,"LoadFunction",true,playerid,true,false,true,true); //Parsing with traditional dynamic loading and broadcast accross all scripts
 	</example>
 *******************************************************************************************************************************/
-stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,extra=0,bool:pass_extra=false,bool:func_with_key=false)
+stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,extra=0,bool:pass_extra=false,bool:func_with_key=false,bool:tradition_func=false,bool:broadcast=false)
 {
     #if !defined INI_CAREFUL_MODE
-	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error("[INI]ParseINI:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
-	else { INI_Error("[INI]ParseINI:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
+	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES)
+	{
+		if(!IsFileHandleInUse(_:filehandle))
+		{
+			INI_Error(filehandle,"[INI]ParseINI:Invalid File Handle ID (%d)",_:filehandle);
+			return INI_ERR_INVALID_HANDLE;
+		}
+	}
+	else
+	{
+		INI_Error(filehandle,"[INI]ParseINI:Invalid File Handle ID (%d)",_:filehandle);
+		return INI_ERR_INVALID_HANDLE;
+	}
 	#endif
 
-	new File:rfile,fmode = INI_File[_:filehandle][E_INI_FILE_mode];
-    new line[INI_MAX_LINE_LENGTH],len;
-    new KeyID = 0,SectionID = 0,LineID = INI_MAX_LINES*_:filehandle;
-    new tmp,index,bool:keystart = true,bool:wspace = false,func[INI_MAX_FUNCTION_NAME_LENGTH];
+	static File:rfile;
+    static line[INI_MAX_LINE_LENGTH],len;
+    static index,tmp,func[INI_MAX_FUNCTION_NAME_LENGTH];
+
+    new fmode = INI_File[_:filehandle][E_INI_FILE_mode],bool:keystart = true,bool:wspace = false,KeyID = 0,SectionID = 0,LineID = INI_MAX_LINES*_:filehandle;
 
 	switch(fmode)
 	{
@@ -615,11 +722,12 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 	        strunpack(line,INI_File[_:filehandle][E_INI_FILE_filename]);
 	        if(!(rfile = fopen(line,io_read)))
 			{
-			    INI_Error("[INI]ParseINI:Failed to open file(%s) for reading.",line);
+			    INI_Error(filehandle,"[INI]ParseINI:Failed to open file(%s) for reading.",line);
 				return INI_ERR_FAILED_TO_OPEN;
 			}
 	    }
 	}
+
 	while((len = fread(rfile,line)))
 	{
 		for(new i = 0;;i++)
@@ -639,7 +747,7 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 					            goto comment_line;
 					            #else
 					            strunpack(line,INI_File[_:filehandle][E_INI_FILE_filename]);
-							  	INI_Error("[INI]Parser:Syntax Error in line %d in %s >> empty section",LineID + 1 - INI_MAX_LINES*_:filehandle,line);
+							  	INI_Error(filehandle,"[INI]Parser:Syntax Error in line %d in %s >> empty section",LineID + 1 - INI_MAX_LINES*_:filehandle,line);
 							  	INI::CloseINI(filehandle,false);
 							  	fclose(rfile);
 							  	return INI_ERR_SYNTAX;
@@ -678,7 +786,6 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 										{
 										 	wspace = true;
 											strmid(INI_Section[tmp][E_INI_SECTION_name],line,index,i,INI_MAX_SECTION_NAME_LENGTH);
-				 							INI_Section[tmp][E_INI_SECTION_name_size] = i - index;
 										}
 					                }
 					                default: wspace = false;
@@ -692,7 +799,7 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 						            goto comment_line;
 						            #else
 	          			            strunpack(line,INI_File[_:filehandle][E_INI_FILE_filename]);
-									INI_Error("[INI]Parser:Syntax Error in line %d in %s >> whitespace found in section name",LineID+1 - INI_MAX_LINES*_:filehandle,line);
+									INI_Error(filehandle,"[INI]Parser:Syntax Error in line %d in %s >> whitespace found in section name",LineID+1 - INI_MAX_LINES*_:filehandle,line);
 									INI::CloseINI(filehandle,false);
 									fclose(rfile);
 									return INI_ERR_SYNTAX;
@@ -708,7 +815,6 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
           			        {
           			            if(wspace) break;
           			            strmid(INI_Section[tmp][E_INI_SECTION_name],line,index,i,INI_MAX_SECTION_NAME_LENGTH);
-			 					INI_Section[tmp][E_INI_SECTION_name_size] = i - index;
 			       		    	break;
           			        }
           			        #if !defined INI_ASSUME_FORMATTED_INI
@@ -717,7 +823,6 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
           			            if(wspace) continue;
           			            wspace = true;
           			            strmid(INI_Section[tmp][E_INI_SECTION_name],line,index,i,INI_MAX_SECTION_NAME_LENGTH);
-			 					INI_Section[tmp][E_INI_SECTION_name_size] = i - index;
           			            continue;
           			        }
           			        case '\r','\n',0:
@@ -725,11 +830,10 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
           			            #if defined INI_LIBERAL_MODE
           			            if(wspace) break;
           			            strmid(INI_Section[tmp][E_INI_SECTION_name],line,index,i,INI_MAX_SECTION_NAME_LENGTH);
-			 					INI_Section[tmp][E_INI_SECTION_name_size] = i - index;
 			       		    	break;
 					            #else
           			            strunpack(line,INI_File[_:filehandle][E_INI_FILE_filename]);
-								INI_Error("[INI]Parser:Syntax Error in line %d in %s >> non-terminated section tag",LineID+1 - INI_MAX_LINES*_:filehandle,line);
+								INI_Error(filehandle,"[INI]Parser:Syntax Error in line %d in %s >> non-terminated section tag",LineID+1 - INI_MAX_LINES*_:filehandle,line);
 								INI::CloseINI(filehandle,false);
 								fclose(rfile);
 								return INI_ERR_SYNTAX;
@@ -741,7 +845,7 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
           			            continue;
 					            #else
           			            strunpack(line,INI_File[_:filehandle][E_INI_FILE_filename]);
-								INI_Error("[INI]Parser:Syntax Error in line %d in %s >>  invalid character",LineID + 1 - INI_MAX_LINES*_:filehandle,line);
+								INI_Error(filehandle,"[INI]Parser:Syntax Error in line %d in %s >>  invalid character",LineID + 1 - INI_MAX_LINES*_:filehandle,line);
 								INI::CloseINI(filehandle,false);
 								fclose(rfile);
 								return INI_ERR_SYNTAX;
@@ -756,7 +860,7 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 							if(!strcmp(INI_Section[tmp][E_INI_SECTION_name],INI_Section[tmp-j][E_INI_SECTION_name],_INI_CS))
 							{
 							    strunpack(func,INI_File[_:filehandle][E_INI_FILE_filename]);
-							   	INI_Warning("[INI]Warning:Duplicate Section %s(Will be ignored) in file (%s)",INI_Section[tmp][E_INI_SECTION_name],func);
+							   	INI_Warning(filehandle,"[INI]Warning:Duplicate Section %s(Will be ignored) in file (%s)",INI_Section[tmp][E_INI_SECTION_name],func);
 							   	break;
 							}
 						}
@@ -801,6 +905,7 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 					INI_Line[LineID][E_INI_LINE_id] = tmp;
       				index = i;
       				wspace = false;
+
       				for(;;i++)
       				{
       				    if(IsValidNameChar(line[i]))
@@ -814,7 +919,6 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 										{
 										 	wspace = true;
 											strmid(INI_Key[tmp][E_INI_KEY_name],line,index,i,INI_MAX_KEY_NAME_LENGTH);
-				 							INI_Key[tmp][E_INI_KEY_name_size] = i - index;
 										}
 					                }
 					                default: wspace = false;
@@ -828,7 +932,7 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 						            goto comment_line;
 						            #else
 	          			            strunpack(line,INI_File[_:filehandle][E_INI_FILE_filename]);
-									INI_Error("[INI]Parser:Syntax Error in line %d in %s >> whitespace found in key name",LineID+1 - INI_MAX_LINES*_:filehandle,line);
+									INI_Error(filehandle,"[INI]Parser:Syntax Error in line %d in %s >> whitespace found in key name",LineID+1 - INI_MAX_LINES*_:filehandle,line);
 									INI::CloseINI(filehandle,false);
 									fclose(rfile);
 									return INI_ERR_SYNTAX;
@@ -844,7 +948,6 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 							{
                                 if(wspace) break;
           			            strmid(INI_Key[tmp][E_INI_KEY_name],line,index,i,INI_MAX_KEY_NAME_LENGTH);
-			 					INI_Key[tmp][E_INI_KEY_name_size] = i - index;
 			       		    	break;
 							}
 
@@ -853,7 +956,6 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 						        if(wspace) continue;
           			            wspace = true;
           			            strmid(INI_Key[tmp][E_INI_KEY_name],line,index,i,INI_MAX_KEY_NAME_LENGTH);
-			 					INI_Key[tmp][E_INI_KEY_name_size] = i - index;
           			            continue;
 						    }
 						    #if !defined INI_ASSUME_FORMATTED_INI
@@ -866,7 +968,7 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 			       		    	break;
 					            #else
           			            strunpack(line,INI_File[_:filehandle][E_INI_FILE_filename]);
-								INI_Error("[INI]Parser:Syntax Error in line %d in %s >> invalid line",LineID+1 - INI_MAX_LINES*_:filehandle,line);
+								INI_Error(filehandle,"[INI]Parser:Syntax Error in line %d in %s >> invalid line",LineID+1 - INI_MAX_LINES*_:filehandle,line);
 								INI::CloseINI(filehandle,false);
 								fclose(rfile);
 								return INI_ERR_SYNTAX;
@@ -878,7 +980,7 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
           			            continue;
 					            #else
           			            strunpack(line,INI_File[_:filehandle][E_INI_FILE_filename]);
-								INI_Error("[INI]Parser:Syntax Error in line %d in %s >>  invalid character in key name",LineID + 1 - INI_MAX_LINES*_:filehandle,line);
+								INI_Error(filehandle,"[INI]Parser:Syntax Error in line %d in %s >>  invalid character in key name",LineID + 1 - INI_MAX_LINES*_:filehandle,line);
 								INI::CloseINI(filehandle,false);
 								fclose(rfile);
 								return INI_ERR_SYNTAX;
@@ -887,6 +989,7 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 						    #endif
 						}
       				}
+
       				if(keystart)
 					{
 						keystart = false;
@@ -909,7 +1012,7 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 					        {
                        	        INI_Key[tmp][E_INI_KEY_value][0] = '\0';
 						        strunpack(func,INI_File[_:filehandle][E_INI_FILE_filename]);
-								INI_Warning("[INI]Warning:Empty Valued Key  in line %d in %s",LineID+1-INI_MAX_LINES*_:filehandle,func);
+								INI_Warning(filehandle,"[INI]Warning:Empty Valued Key  in line %d in %s",LineID+1-INI_MAX_LINES*_:filehandle,func);
                             }
 			  	  		}
                     }while(line[i] == ' ');
@@ -943,37 +1046,115 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 					}
 					if(dynamic)
 					{
-						if(func_with_key)
-						{
-						    if(SectionID == 0) format(func,sizeof(func),LoadFunction,"",INI_Key[tmp][E_INI_KEY_name]);
-						    else	format(func,sizeof(func),LoadFunction,INI_Section[INI_MAX_SECTIONS*_:filehandle + SectionID][E_INI_SECTION_name],INI_Key[tmp][E_INI_KEY_name]);
-
-							if(pass_extra)
-						   		CallRemoteFunction(func,"si",INI_Key[tmp][E_INI_KEY_value],extra);
-					    	else
-					        	CallRemoteFunction(func,"s",INI_Key[tmp][E_INI_KEY_value]);
-						}
-						else
-						{
-						    if(SectionID == 0) format(func,sizeof(func),LoadFunction,"");
-						    else	format(func,sizeof(func),LoadFunction,INI_Section[INI_MAX_SECTIONS*_:filehandle + SectionID][E_INI_SECTION_name]);
-
-							if(pass_extra)
-						   		CallRemoteFunction(func,"ssi",INI_Key[tmp][E_INI_KEY_name],INI_Key[tmp][E_INI_KEY_value],extra);
-					    	else
-					        	CallRemoteFunction(func,"ss",INI_Key[tmp][E_INI_KEY_name],INI_Key[tmp][E_INI_KEY_value]);
-						}
-					}
-    				#if !defined INI_DISABLE_WARNINGS
-					    for(new j = INI_Section[INI_MAX_SECTIONS*_:filehandle + SectionID][E_INI_SECTION_keystart];j < tmp;j++)
-						{
-							if(!strcmp(INI_Key[tmp][E_INI_KEY_name],INI_Key[j][E_INI_KEY_name],_INI_CS))
+					    if(broadcast)
+					    {
+							if(tradition_func)
 							{
-							    strunpack(func,INI_File[_:filehandle][E_INI_FILE_filename]);
-							   	INI_Warning("[INI]Warning:Duplicate Key %s(Will be ignored) in section %s of file (%s)",INI_Key[tmp][E_INI_KEY_name],INI_Section[INI_MAX_SECTIONS*_:filehandle + SectionID][E_INI_SECTION_name],func);
-							   	break;
+       				            if(SectionID)
+					            {
+	                                if(pass_extra)
+										CallRemoteFunction(LoadFunction,"sssi",INI_Key[tmp][E_INI_KEY_name],INI_Section[INI_MAX_SECTIONS*_:filehandle + SectionID][E_INI_SECTION_name],INI_Key[tmp][E_INI_KEY_value],extra);
+								    else
+								       	CallRemoteFunction(LoadFunction,"sss",INI_Key[tmp][E_INI_KEY_name],INI_Section[INI_MAX_SECTIONS*_:filehandle + SectionID][E_INI_SECTION_name],INI_Key[tmp][E_INI_KEY_value]);
+								}
+								else
+								{
+	                                if(pass_extra)
+										CallRemoteFunction(LoadFunction,"sssi",INI_Key[tmp][E_INI_KEY_name],"\r",INI_Key[tmp][E_INI_KEY_value],extra);
+								    else
+								       	CallRemoteFunction(LoadFunction,"sss",INI_Key[tmp][E_INI_KEY_name],"\r",INI_Key[tmp][E_INI_KEY_value]);
+								}
+							}
+							else
+							{
+								if(func_with_key)
+								{
+        						    if(SectionID)
+								    	format(func,sizeof(func),LoadFunction,INI_Section[INI_MAX_SECTIONS*_:filehandle + SectionID][E_INI_SECTION_name],INI_Key[tmp][E_INI_KEY_name]);
+									else
+									    format(func,sizeof(func),LoadFunction,"",INI_Key[tmp][E_INI_KEY_name]);
+
+
+									if(pass_extra)
+								   		CallRemoteFunction(func,"si",INI_Key[tmp][E_INI_KEY_value],extra);
+							    	else
+							        	CallRemoteFunction(func,"s",INI_Key[tmp][E_INI_KEY_value]);
+								}
+								else
+							    {
+								    if(SectionID)
+								    	format(func,sizeof(func),LoadFunction,INI_Section[INI_MAX_SECTIONS*_:filehandle + SectionID][E_INI_SECTION_name]);
+									else
+									    format(func,sizeof(func),LoadFunction,"");
+
+
+									if(pass_extra)
+									 	CallRemoteFunction(func,"ssi",INI_Key[tmp][E_INI_KEY_name],INI_Key[tmp][E_INI_KEY_value],extra);
+							    	else
+								       	CallRemoteFunction(func,"ss",INI_Key[tmp][E_INI_KEY_name],INI_Key[tmp][E_INI_KEY_value]);
+								}
 							}
 						}
+					    else
+						{
+							if(tradition_func)
+							{
+       				            if(SectionID)
+					            {
+	                                if(pass_extra)
+										CallLocalFunction(LoadFunction,"sssi",INI_Key[tmp][E_INI_KEY_name],INI_Section[INI_MAX_SECTIONS*_:filehandle + SectionID][E_INI_SECTION_name],INI_Key[tmp][E_INI_KEY_value],extra);
+								    else
+								       	CallLocalFunction(LoadFunction,"sss",INI_Key[tmp][E_INI_KEY_name],INI_Section[INI_MAX_SECTIONS*_:filehandle + SectionID][E_INI_SECTION_name],INI_Key[tmp][E_INI_KEY_value]);
+								}
+								else
+								{
+		                          	if(pass_extra)
+										CallLocalFunction(LoadFunction,"sssi",INI_Key[tmp][E_INI_KEY_name]," ",INI_Key[tmp][E_INI_KEY_value],extra);
+									else
+									  	CallLocalFunction(LoadFunction,"sss",INI_Key[tmp][E_INI_KEY_name]," ",INI_Key[tmp][E_INI_KEY_value]);
+								}
+							}
+	  						else
+							{
+								if(func_with_key)
+								{
+        						    if(SectionID)
+								    	format(func,sizeof(func),LoadFunction,INI_Section[INI_MAX_SECTIONS*_:filehandle + SectionID][E_INI_SECTION_name],INI_Key[tmp][E_INI_KEY_name]);
+									else
+									    format(func,sizeof(func),LoadFunction,"",INI_Key[tmp][E_INI_KEY_name]);
+
+
+									if(pass_extra)
+								   		CallLocalFunction(func,"si",INI_Key[tmp][E_INI_KEY_value],extra);
+							    	else
+							        	CallLocalFunction(func,"s",INI_Key[tmp][E_INI_KEY_value]);
+								}
+ 								else
+								{
+								    if(SectionID)
+								    	format(func,sizeof(func),LoadFunction,INI_Section[INI_MAX_SECTIONS*_:filehandle + SectionID][E_INI_SECTION_name]);
+									else
+									    format(func,sizeof(func),LoadFunction,"");
+
+
+									if(pass_extra)
+								   		CallLocalFunction(func,"ssi",INI_Key[tmp][E_INI_KEY_name],INI_Key[tmp][E_INI_KEY_value],extra);
+							    	else
+							        	CallLocalFunction(func,"ss",INI_Key[tmp][E_INI_KEY_name],INI_Key[tmp][E_INI_KEY_value]);
+								}
+ 					        }
+					    }
+					}
+    				#if !defined INI_DISABLE_WARNINGS
+					for(new j = INI_Section[INI_MAX_SECTIONS*_:filehandle + SectionID][E_INI_SECTION_keystart];j < tmp;j++)
+					{
+						if(!strcmp(INI_Key[tmp][E_INI_KEY_name],INI_Key[j][E_INI_KEY_name],_INI_CS))
+						{
+						    strunpack(func,INI_File[_:filehandle][E_INI_FILE_filename]);
+						   	INI_Warning(filehandle,"[INI]Warning:Duplicate Key %s(Will be ignored) in section %s of file (%s)",INI_Key[tmp][E_INI_KEY_name],INI_Section[INI_MAX_SECTIONS*_:filehandle + SectionID][E_INI_SECTION_name],func);
+						   	break;
+						}
+					}
 					#endif
 					break;
      			}
@@ -997,6 +1178,7 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 	INI_File[_:filehandle][E_INI_FILE_LoadedSections] = SectionID;
 	INI_File[_:filehandle][E_INI_FILE_LoadedKeys] = KeyID;
 	INI_File[_:filehandle][E_INI_FILE_parsed] = true;
+
  	#if defined INI_ASSUME_FORMATTED_INI || !defined INI_LIBERAL_MODE
         #pragma unused comment_line
     #endif
@@ -1035,15 +1217,15 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 stock INI::ReadString(INI:filehandle,result[],const key[],const section[]="",keyid=-1,sectionid=-1,result_size=sizeof(result),section_size=sizeof(section),key_size=sizeof(key))
 {
 	#if !defined INI_CAREFUL_MODE
-	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error("[INI]ReadString:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
-	else { INI_Error("[INI]ReadString:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
+	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error(filehandle,"[INI]ReadString:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
+	else { INI_Error(filehandle,"[INI]ReadString:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
 	#endif
 	if(!INI_File[_:filehandle][E_INI_FILE_parsed])
 		if(INI::ParseINI(filehandle))
 		{
 		    new str[INI_MAX_FILE_NAME_LENGTH];
 		    strunpack(str,INI_File[_:filehandle][E_INI_FILE_filename]);
-		    INI_Error("[INI]ReadString:Failed to parse file(%s)>>Read Failed",str);
+		    INI_Error(filehandle,"[INI]ReadString:Failed to parse file(%s)>>Read Failed",str);
 			return INI_ERR_PARSING_FAILED;
 		}
 	if(--key_size) //removing the null character
@@ -1052,7 +1234,7 @@ stock INI::ReadString(INI:filehandle,result[],const key[],const section[]="",key
 	    {
 	        for(new i = INI_MAX_SECTIONS*_:filehandle + 1,j = i + INI_File[_:filehandle][E_INI_FILE_LoadedSections];i <= j;i++)
 	        {
-	            if(INI_Section[i][E_INI_SECTION_name_size] == section_size)
+	            if(INI_Section[i][E_INI_SECTION_name][0] == section[0])
 	            {
 	                if(!strcmp(section,INI_Section[i][E_INI_SECTION_name],_INI_CS))
 	                {
@@ -1061,7 +1243,7 @@ stock INI::ReadString(INI:filehandle,result[],const key[],const section[]="",key
 	                    {
 		                    do
 		                    {
-		                        if(key_size == INI_Key[i][E_INI_KEY_name_size])
+		                        if(key[0] == INI_Key[i][E_INI_KEY_name][0])
 		                        {
 		                            if(!strcmp(key,INI_Key[i][E_INI_KEY_name],_INI_CS))
 		                            {
@@ -1077,7 +1259,7 @@ stock INI::ReadString(INI:filehandle,result[],const key[],const section[]="",key
 	                }
 	            }
 	        }
-			INI_Notice("[INI]ReadString:Key %s not found in section %s",key,section);
+			INI_Notice(filehandle,"[INI]ReadString:Key %s not found in section %s",key,section);
 	   		return INI_KEY_NOT_FOUND;
 		}
 		else if(sectionid > -1)
@@ -1089,7 +1271,7 @@ stock INI::ReadString(INI:filehandle,result[],const key[],const section[]="",key
 	            {
 		        	do
 		          	{
-		            	if(key_size == INI_Key[i][E_INI_KEY_name_size])
+		            	if(key[0] == INI_Key[i][E_INI_KEY_name][0])
 		              	{
 		               		if(!strcmp(key,INI_Key[i][E_INI_KEY_name],_INI_CS))
 	                		{
@@ -1104,10 +1286,10 @@ stock INI::ReadString(INI:filehandle,result[],const key[],const section[]="",key
 		    }
 		    else
 		    {
-		        INI_Error("[INI]ReadString:Invalid Section ID (%d)",sectionid);
+		        INI_Error(filehandle,"[INI]ReadString:Invalid Section ID (%d)",sectionid);
 		    	return INI_ERR_INVALID_ID;
 			}
-            INI_Notice("[INI]ReadString:Key(%s) not found in section ID %d ",key,sectionid);
+            INI_Notice(filehandle,"[INI]ReadString:Key(%s) not found in section ID %d ",key,sectionid);
             return INI_KEY_NOT_FOUND;
 		}
 		else
@@ -1117,7 +1299,7 @@ stock INI::ReadString(INI:filehandle,result[],const key[],const section[]="",key
 	        {
 		    	do
 		       	{
-		        	if(key_size == INI_Key[i][E_INI_KEY_name_size])
+		        	if(key[0] == INI_Key[i][E_INI_KEY_name][0])
 		         	{
 		            	if(!strcmp(key,INI_Key[i][E_INI_KEY_name],_INI_CS))
 		            	{
@@ -1129,7 +1311,7 @@ stock INI::ReadString(INI:filehandle,result[],const key[],const section[]="",key
 		   			}
 				}while((i = INI_Key[i][E_INI_KEY_next]) != INI_LINKED_LIST_NULL);
 			}
-			INI_Notice("[INI]ReadString:Key(%s) not found in global section",key);
+			INI_Notice(filehandle,"[INI]ReadString:Key(%s) not found in global section",key);
 	    	return INI_KEY_NOT_FOUND;
 		}
 	}
@@ -1147,11 +1329,11 @@ stock INI::ReadString(INI:filehandle,result[],const key[],const section[]="",key
         }
         else
         {
-	       	INI_Error("[INI]ReadString:Non-existant Key ID (%d)",keyid);
+	       	INI_Error(filehandle,"[INI]ReadString:Non-existant Key ID (%d)",keyid);
 	    	return INI_KEY_NOT_FOUND;
       	}
    	}
-    INI_Error("[INI]ReadString:Invalid Parameters",key,sectionid);
+    INI_Error(filehandle,"[INI]ReadString:Invalid Parameters",key,sectionid);
 	return INI_KEY_NOT_FOUND;
 }
 /*******************************************************************************************************************************
@@ -1187,12 +1369,12 @@ stock INI::ReadString(INI:filehandle,result[],const key[],const section[]="",key
 	INI::ReadBool(handle,res,"","",1); //Gets the value of key with keyid 1
 	</example>
 *******************************************************************************************************************************/
-stock INI::ReadBool(INI:filehandle,&bool:variable,const key[]="",const section[]="",keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
+stock INI::ReadBool(INI:filehandle,&bool:variable,const key[],const section[]="",keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
 {
 	#if INI_WRITE_TRUE_VALUE_SIZE > INI_WRITE_FALSE_VALUE_SIZE
-	new result[INI_WRITE_TRUE_VALUE_SIZE];
+	static result[INI_WRITE_TRUE_VALUE_SIZE];
 	#else
-	new result[INI_WRITE_FALSE_VALUE_SIZE];
+	static result[INI_WRITE_FALSE_VALUE_SIZE];
 	#endif
 	new ret_num = INI::ReadString(filehandle,result,key,section,keyid,sectionid,sizeof(result),section_size,key_size);
 	if(ret_num > -1)
@@ -1237,9 +1419,9 @@ stock INI::ReadBool(INI:filehandle,&bool:variable,const key[]="",const section[]
 	INI::ReadInteger(handle,res,"","",1); //Gets the value of key with keyid 1
 	</example>
 *******************************************************************************************************************************/
-stock INI::ReadInteger(INI:filehandle,&variable,const key[]="",const section[]="",keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
+stock INI::ReadInteger(INI:filehandle,&variable,const key[],const section[]="",keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
 {
-	new result[INI_INTEGER_DIGITS];
+	static result[INI_INTEGER_DIGITS];
 	new ret_num = INI::ReadString(filehandle,result,key,section,keyid,sectionid,sizeof(result),section_size,key_size);
 	if(ret_num > -1) variable = strval(result);
 	return ret_num;
@@ -1278,9 +1460,9 @@ stock INI::ReadInteger(INI:filehandle,&variable,const key[]="",const section[]="
 	INI::ReadFloat(handle,res,"","",1); //Gets the value of key with keyid 1
 	</example>
 *******************************************************************************************************************************/
-stock INI::ReadFloat(INI:filehandle,&Float:variable,const key[]="",const section[]="",keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
+stock INI::ReadFloat(INI:filehandle,&Float:variable,const key[],const section[]="",keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
 {
-	new result[INI_FLOATING_POINT_PRECISION];
+	static result[INI_FLOATING_POINT_PRECISION];
 	new ret_num = INI::ReadString(filehandle,result,key,section,keyid,sectionid,sizeof(result),section_size,key_size);
 	if(ret_num > -1) variable = floatstr(result);
 	return ret_num;
@@ -1319,11 +1501,11 @@ stock INI::ReadFloat(INI:filehandle,&Float:variable,const key[]="",const section
 	INI::ReadHex(handle,res,"","",1); //Gets the value of key with keyid 1
 	</example>
 *******************************************************************************************************************************/
-stock INI::ReadHex(INI:filehandle,&variable,const key[]="",const section[]="",keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
+stock INI::ReadHex(INI:filehandle,&variable,const key[],const section[]="",keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
 {
-	new result[INI_HEX_DIGITS];
+	static result[INI_HEX_DIGITS];
 	new ret_num = INI::ReadString(filehandle,result,key,section,keyid,sectionid,sizeof(result),section_size,key_size);
-	if(ret_num > -1) variable = HexadecimalToDecimal(result);
+	if(ret_num > -1) variable = intrl_EINI_HexadecimalToDecimal(result);
 	return ret_num;
 }
 /*******************************************************************************************************************************
@@ -1360,11 +1542,11 @@ stock INI::ReadHex(INI:filehandle,&variable,const key[]="",const section[]="",ke
 	INI::ReadBinary(handle,res,"","",1); //Gets the value of key with keyid 1
 	</example>
 *******************************************************************************************************************************/
-stock INI::ReadBinary(INI:filehandle,&variable,const key[]="",const section[]="",keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
+stock INI::ReadBinary(INI:filehandle,&variable,const key[],const section[]="",keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
 {
-	new result[INI_BIN_DIGITS];
+	static result[INI_BIN_DIGITS];
 	new ret_num = INI::ReadString(filehandle,result,key,section,keyid,sectionid,sizeof(result),section_size,key_size);
-	if(ret_num > -1) variable = BinaryToDecimal(result);
+	if(ret_num > -1) variable = intrl_EINI_BinaryToDecimal(result);
 	return ret_num;
 }
 /*******************************************************************************************************************************
@@ -1395,9 +1577,9 @@ stock INI::ReadBinary(INI:filehandle,&variable,const key[]="",const section[]=""
 	INI::ReadArray(handle,arr,"","",1); //Gets the value of key with keyid 1
 	</example>
 *******************************************************************************************************************************/
-stock INI::ReadArray(INI:filehandle,array[],const key[]="",const section[]="",keyid=-1,sectionid=-1,array_size=sizeof(array),section_size=sizeof(section),key_size=sizeof(key))
+stock INI::ReadArray(INI:filehandle,array[],const key[],const section[]="",keyid=-1,sectionid=-1,array_size=sizeof(array),section_size=sizeof(section),key_size=sizeof(key))
 {
-	new result[INI_MAX_KEY_VALUE_LENGTH];
+	static result[INI_MAX_KEY_VALUE_LENGTH];
 	new ret_num = INI::ReadString(filehandle,result,key,section,keyid,sectionid,sizeof(result),section_size,key_size);
 	if(ret_num > -1)
 	{
@@ -1507,13 +1689,18 @@ stock INI::ReadArray(INI:filehandle,array[],const key[]="",const section[]="",ke
 stock INI::ReadFormat(INI:filehandle,sectionid,const format[],{Float,_}:...)
 {
     #if !defined INI_CAREFUL_MODE
-	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error("[INI]ReadFormat:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
-	else { INI_Error("[INI]ReadFormat:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
+	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error(filehandle,"[INI]ReadFormat:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
+	else { INI_Error(filehandle,"[INI]ReadFormat:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
 	#endif
-	new k,result[INI_MAX_KEY_VALUE_LENGTH],key[INI_MAX_KEY_NAME_LENGTH],val1,Float:val2,bool:val3;
-	for(new i = 0,j = numargs();(4 + i*2) < j;i++)
+	
+	static j,result[INI_MAX_KEY_VALUE_LENGTH],key[INI_MAX_KEY_NAME_LENGTH],val1,Float:val2,bool:val3;
+
+    #emit LOAD.S.pri  8
+	#emit SHR.C.pri   2
+	#emit STOR.pri  j //Get number of arguments
+
+	for(new i = 0,k = 0;(4 + i*2) < j;i++)
 	{
-	    k = 0;
 	    do
         {
             key[k] = getarg(4 + i*2,k);
@@ -1583,7 +1770,7 @@ stock INI::ReadFormat(INI:filehandle,sectionid,const format[],{Float,_}:...)
 *******************************************************************************************************************************/
 stock INI::Replace(const src[],dest[],const ReplacementFunction[]="",extra=0,bool:pass_extra=false,sz=sizeof(src),sz_dest=sizeof(dest),sz_rf=sizeof(ReplacementFunction))
 {
-	new pos;
+	static pos,rtext[INI_MAX_REPLACEMENT_TAG];
 	for(new i = 0,j = 0;i < sz;i++)
 	{
 	    switch(src[i])
@@ -1607,7 +1794,6 @@ stock INI::Replace(const src[],dest[],const ReplacementFunction[]="",extra=0,boo
 	        {
 	            if(sz_rf > 1)
 	            {
-		            new rtext[INI_MAX_REPLACEMENT_TAG];
 		        	pos = strfind(src,"]",false,i);
 		        	if(pos == -1)
 		        	{
@@ -1688,18 +1874,19 @@ stock INI::SetReplacementText(const text[],sz=sizeof(text))
 	INI::WriteString(handle,data,"","",1); //Changes the value of the key having the given keyid
 	</example>
 *******************************************************************************************************************************/
-stock INI::WriteString(INI:filehandle,const data[],const key[],const section[],keyid=-1,sectionid=-1,data_size=sizeof(data),section_size=sizeof(section),key_size=sizeof(key))
+stock INI::WriteString(INI:filehandle,const data[],const key[],const section[]="",keyid=-1,sectionid=-1,data_size=sizeof(data),section_size=sizeof(section),key_size=sizeof(key))
 {
     #if !defined INI_CAREFUL_MODE
-	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error("[INI]WriteString:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
-	else { INI_Error("[INI]WriteString:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
+	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error(filehandle,"[INI]WriteString:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
+	else { INI_Error(filehandle,"[INI]WriteString:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
 	#endif
+	
 	if(!INI_File[_:filehandle][E_INI_FILE_parsed])
 		if(INI::ParseINI(filehandle))
 		{
 		    new str[INI_MAX_FILE_NAME_LENGTH];
 		    strunpack(str,INI_File[_:filehandle][E_INI_FILE_filename]);
-		    INI_Error("[INI]ReadString:Failed to parse file(%s)>>Read Failed",str);
+		    INI_Error(filehandle,"[INI]ReadString:Failed to parse file(%s)>>Read Failed",str);
 			return INI_ERR_PARSING_FAILED;
 		}
 	if(--key_size) //removing the null character
@@ -1709,7 +1896,7 @@ stock INI::WriteString(INI:filehandle,const data[],const key[],const section[],k
 	        new i = INI_MAX_SECTIONS*_:filehandle;
 	        for(new j = i + INI_File[_:filehandle][E_INI_FILE_LoadedSections];i++ < j;)
 	        {
-	           	if(INI_Section[i][E_INI_SECTION_name_size] == section_size)
+	           	if(INI_Section[i][E_INI_SECTION_name][0] == section[0])
 	            {
 	                if(!strcmp(section,INI_Section[i][E_INI_SECTION_name],_INI_CS))
 	                {
@@ -1718,7 +1905,7 @@ stock INI::WriteString(INI:filehandle,const data[],const key[],const section[],k
 	                    {
 		                    do
 		                    {
-		                        if(key_size == INI_Key[j][E_INI_KEY_name_size])
+		                        if(key[0] == INI_Key[j][E_INI_KEY_name][0])
 		                        {
 		                            if(!strcmp(key,INI_Key[j][E_INI_KEY_name],_INI_CS))
 		                            {
@@ -1729,13 +1916,13 @@ stock INI::WriteString(INI:filehandle,const data[],const key[],const section[],k
 	                            	}
                         		}
                 		    }while((j = INI_Key[j][E_INI_KEY_next]) != INI_LINKED_LIST_NULL);
-                            return ini_internal_CreateKey(filehandle,key,data,i,key_size);
+                            return ini_internal_CreateKey(filehandle,key,data,i);
  						}
 					}
 	            }
 	        }
-	        if((i = ini_internal_CreateSection(filehandle,section,section_size+1)) > -1)
-	        	return ini_internal_CreateKey(filehandle,key,data,i,key_size);
+	        if((i = ini_internal_CreateSection(filehandle,section)) > -1)
+	        	return ini_internal_CreateKey(filehandle,key,data,i);
 			else return INI_SECTION_CREATE_FAILED;
 		}
 		else if(sectionid > -1)
@@ -1747,7 +1934,7 @@ stock INI::WriteString(INI:filehandle,const data[],const key[],const section[],k
 	            {
 	                do
 		            {
-		               	if(key_size == INI_Key[j][E_INI_KEY_name_size])
+		               	if(key[0] == INI_Key[j][E_INI_KEY_name][0])
 		                {
 		                   	if(!strcmp(key,INI_Key[j][E_INI_KEY_name],_INI_CS))
 		                    {
@@ -1759,11 +1946,11 @@ stock INI::WriteString(INI:filehandle,const data[],const key[],const section[],k
 	                 	}
               		}while((j=INI_Key[j][E_INI_KEY_next]) != INI_LINKED_LIST_NULL);
 				}
-				return ini_internal_CreateKey(filehandle,key,data,sectionid,key_size);
+				return ini_internal_CreateKey(filehandle,key,data,sectionid);
 	    	}
 		    else
 		    {
-		        INI_Error("[INI]WriteString:Invalid Section ID (%d)",sectionid);
+		        INI_Error(filehandle,"[INI]WriteString:Invalid Section ID (%d)",sectionid);
 		    	return INI_ERR_INVALID_ID;
 			}
 		}
@@ -1774,7 +1961,7 @@ stock INI::WriteString(INI:filehandle,const data[],const key[],const section[],k
 	        {
 		    	do
 		       	{
-		        	if(key_size == INI_Key[i][E_INI_KEY_name_size])
+		        	if(key[0] == INI_Key[i][E_INI_KEY_name][0])
 		         	{
 		            	if(!strcmp(key,INI_Key[i][E_INI_KEY_name],_INI_CS))
 		            	{
@@ -1786,7 +1973,7 @@ stock INI::WriteString(INI:filehandle,const data[],const key[],const section[],k
 		   			}
 				}while((i = INI_Key[i][E_INI_KEY_next]) != INI_LINKED_LIST_NULL);
 			}
-			return ini_internal_CreateKey(filehandle,key,data,0,key_size);
+			return ini_internal_CreateKey(filehandle,key,data,0);
 		}
 	}
     else if(keyid > -1)
@@ -1803,11 +1990,11 @@ stock INI::WriteString(INI:filehandle,const data[],const key[],const section[],k
         }
         else
         {
-	       	INI_Error("[INI]WriteString:Non-existant Key ID (%d)",keyid);
+	       	INI_Error(filehandle,"[INI]WriteString:Non-existant Key ID (%d)",keyid);
 	    	return INI_KEY_NOT_FOUND;
       	}
    	}
-    INI_Notice("[INI]WriteString:Invalid Parameters");
+    INI_Notice(filehandle,"[INI]WriteString:Invalid Parameters");
 	return INI_KEY_NOT_FOUND;
 }
 /*******************************************************************************************************************************
@@ -1834,7 +2021,7 @@ stock INI::WriteString(INI:filehandle,const data[],const key[],const section[],k
 	INI::WriteBool(handle,var,"","",1); //Changes the value of the key having the given keyid
 	</example>
 *******************************************************************************************************************************/
-stock INI::WriteBool(INI:filehandle,bool:variable,const key[],const section[],keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
+stock INI::WriteBool(INI:filehandle,bool:variable,const key[],const section[]="",keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
 {
 	if(variable)
         return INI::WriteString(filehandle,INI_WRITE_TRUE_VALUE,key,section,keyid,sectionid,INI_WRITE_TRUE_VALUE_SIZE,section_size,key_size);
@@ -1865,7 +2052,7 @@ stock INI::WriteBool(INI:filehandle,bool:variable,const key[],const section[],ke
 	INI::WriteInteger(handle,var,"","",1); //Changes the value of the key having the given keyid
 	</example>
 *******************************************************************************************************************************/
-stock INI::WriteInteger(INI:filehandle,variable,const key[],const section[],keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
+stock INI::WriteInteger(INI:filehandle,variable,const key[],const section[]="",keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
 {
 	new result[INI_INTEGER_DIGITS]; //Assuming integers to be of 32bit so it can go up to billion = 10 digits
 	valstr(result,variable);
@@ -1896,7 +2083,7 @@ stock INI::WriteInteger(INI:filehandle,variable,const key[],const section[],keyi
 	INI::WriteFloat(handle,data,"","",1); //Changes the value of the key having the given keyid
 	</example>
 *******************************************************************************************************************************/
-stock INI::WriteFloat(INI:filehandle,Float:variable,const key[],const section[],keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
+stock INI::WriteFloat(INI:filehandle,Float:variable,const key[],const section[]="",keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
 {
  	new result[INI_FLOATING_POINT_PRECISION];
 	format(result,INI_FLOATING_POINT_PRECISION,"%f",variable);
@@ -1927,7 +2114,7 @@ stock INI::WriteFloat(INI:filehandle,Float:variable,const key[],const section[],
 	INI::WriteHex(handle,data,"","",1); //Changes the value of the key having the given keyid
 	</example>
 *******************************************************************************************************************************/
-stock INI::WriteHex(INI:filehandle,variable,const key[],const section[],keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
+stock INI::WriteHex(INI:filehandle,variable,const key[],const section[]="",keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
 {
 	new result[INI_HEX_DIGITS];
 	format(result,INI_FLOATING_POINT_PRECISION,"0x%x",variable);
@@ -1958,7 +2145,7 @@ stock INI::WriteHex(INI:filehandle,variable,const key[],const section[],keyid=-1
 	INI::WriteBinary(handle,data,"","",1); //Changes the value of the key having the given keyid
 	</example>
 *******************************************************************************************************************************/
-stock INI::WriteBinary(INI:filehandle,variable,const key[],const section[],keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
+stock INI::WriteBinary(INI:filehandle,variable,const key[],const section[]="",keyid=-1,sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
 {
 	new result[INI_FLOATING_POINT_PRECISION];
 	format(result,INI_FLOATING_POINT_PRECISION,"%b",variable);
@@ -2060,13 +2247,18 @@ stock INI::WriteArray(INI:filehandle,array[],const key[]="",const section[]="",k
 stock INI::WriteFormat(INI:filehandle,sectionid,const format[],{Float,_}:...)
 {
     #if !defined INI_CAREFUL_MODE
-	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error("[INI]ReadFormat:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
-	else { INI_Error("[INI]ReadFormat:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
+	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error(filehandle,"[INI]ReadFormat:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
+	else { INI_Error(filehandle,"[INI]ReadFormat:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
 	#endif
-	new k,result[INI_MAX_KEY_VALUE_LENGTH],key[INI_MAX_KEY_NAME_LENGTH];
-	for(new i = 0,j = numargs();(4 + i*2) < j;i++)
+	
+	static j,result[INI_MAX_KEY_VALUE_LENGTH],key[INI_MAX_KEY_NAME_LENGTH];
+	
+	#emit LOAD.S.pri  8
+	#emit SHR.C.pri   2
+	#emit STOR.pri  j //Get number of arguments
+	
+	for(new i = 0,k = 0;(4 + i*2) < j;i++)
 	{
-	    k = 0;
 	    do
         {
             key[k] = getarg(4 + i*2,k);
@@ -2117,8 +2309,8 @@ stock INI::WriteFormat(INI:filehandle,sectionid,const format[],{Float,_}:...)
 stock INI::DeleteSection(INI:filehandle,const section[]="",sectionid=-1,section_size=sizeof(section))
 {
     #if !defined INI_CAREFUL_MODE
-	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error("[INI]DeleteSection:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
-	else { INI_Error("[INI]DeleteSection:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
+	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error(filehandle,"[INI]DeleteSection:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
+	else { INI_Error(filehandle,"[INI]DeleteSection:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
 	#endif
 	if(--section_size)
 	{
@@ -2128,7 +2320,7 @@ stock INI::DeleteSection(INI:filehandle,const section[]="",sectionid=-1,section_
 	{
      	if(sectionid > INI_File[_:filehandle][E_INI_FILE_LoadedSections])
 		{
-		    INI_Error("[INI]WriteString:Invalid Section ID (%d)",sectionid);
+		    INI_Error(filehandle,"[INI]WriteString:Invalid Section ID (%d)",sectionid);
 		    return INI_ERR_INVALID_ID;
 		}
 	}
@@ -2210,8 +2402,8 @@ stock INI::DeleteSection(INI:filehandle,const section[]="",sectionid=-1,section_
 stock INI::DeleteKey(INI:filehandle,const key[],const section[]="",keyid=-1,sectionid=-1,key_size=sizeof(key),section_size=sizeof(section))
 {
     #if !defined INI_CAREFUL_MODE
-	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error("[INI]DeleteKey:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
-	else { INI_Error("[INI]DeleteKey:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
+	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error(filehandle,"[INI]DeleteKey:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
+	else { INI_Error(filehandle,"[INI]DeleteKey:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
 	#endif
 	if(key_size > 1)
 	{
@@ -2221,13 +2413,13 @@ stock INI::DeleteKey(INI:filehandle,const key[],const section[]="",keyid=-1,sect
 	{
 	    if(keyid > INI_File[_:filehandle][E_INI_FILE_LoadedKeys])
 		{
-		    INI_Error("[INI]DeleteKey:Invalid Key ID (%d)",keyid);
+		    INI_Error(filehandle,"[INI]DeleteKey:Invalid Key ID (%d)",keyid);
 		    return INI_ERR_INVALID_ID;
 		}
 	}
 	else
 	{
-	    INI_Notice("[INI]DeleteKey:Invalid Parameters");
+	    INI_Notice(filehandle,"[INI]DeleteKey:Invalid Parameters");
 		return INI_KEY_NOT_FOUND;
 	}
 	new i = INI_Key[keyid][E_INI_KEY_lineid];
@@ -2264,15 +2456,15 @@ stock INI::DeleteKey(INI:filehandle,const key[],const section[]="",keyid=-1,sect
 stock INI::GetSectionID(INI:filehandle,const section[],section_size=sizeof(section))
 {
     #if !defined INI_CAREFUL_MODE
-	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error("[INI]GetSectionID:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
-	else { INI_Error("[INI]GetSectionID:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
+	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error(filehandle,"[INI]GetSectionID:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
+	else { INI_Error(filehandle,"[INI]GetSectionID:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
 	#endif
 	if(!INI_File[_:filehandle][E_INI_FILE_parsed])
 		if(INI::ParseINI(filehandle))
 		{
 		    new str[INI_MAX_FILE_NAME_LENGTH];
 		    strunpack(str,INI_File[_:filehandle][E_INI_FILE_filename]);
-		    INI_Error("[INI]ReadString:Failed to parse file(%s)>>Read Failed",str);
+		    INI_Error(filehandle,"[INI]ReadString:Failed to parse file(%s)>>Read Failed",str);
 			return INI_ERR_PARSING_FAILED;
 		}
 	if(--section_size)
@@ -2280,7 +2472,7 @@ stock INI::GetSectionID(INI:filehandle,const section[],section_size=sizeof(secti
         new i = INI_MAX_SECTIONS*_:filehandle;
 		for(new j = i + INI_File[_:filehandle][E_INI_FILE_LoadedSections];++i <= j;)
 		{
-			if(INI_Section[i][E_INI_SECTION_name_size] == section_size)
+			if(INI_Section[i][E_INI_SECTION_name][0] == section[0])
 		    {
 		     	if(!strcmp(section,INI_Section[i][E_INI_SECTION_name],_INI_CS))
 		     	    return (i-INI_MAX_SECTIONS*_:filehandle);
@@ -2313,8 +2505,8 @@ stock INI::GetSectionID(INI:filehandle,const section[],section_size=sizeof(secti
 stock INI::GetKeyID(INI:filehandle,const key[],const section[]="",sectionid=-1,section_size=sizeof(section),key_size=sizeof(key))
 {
 	#if !defined INI_CAREFUL_MODE
-	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error("[INI]GetSectionID:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
-	else { INI_Error("[INI]GetSectionID:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
+	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error(filehandle,"[INI]GetSectionID:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
+	else { INI_Error(filehandle,"[INI]GetSectionID:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
 	#endif
 	if(--key_size) //removing the null character
 	{
@@ -2325,13 +2517,13 @@ stock INI::GetKeyID(INI:filehandle,const key[],const section[]="",sectionid=-1,s
 			new i = INI_Section[INI_MAX_SECTIONS*_:filehandle + sid][E_INI_SECTION_keystart];
 			do
 			{
-				if(INI_Key[i][E_INI_KEY_name_size] == key_size)
+				if(INI_Key[i][E_INI_KEY_name][0] == key[0])
 			    {
 			     	if(!strcmp(key,INI_Key[i][E_INI_KEY_name],_INI_CS))
 			     	    return (i-INI_MAX_KEYS*_:filehandle);
 			 	}
 			}while((i = INI_Key[i][E_INI_KEY_next]) != INI_LINKED_LIST_NULL);
-			INI_Notice("[INI]GetKeyID:Key not found (Key:%s Section:%s)",key,section);
+			INI_Notice(filehandle,"[INI]GetKeyID:Key not found (Key:%s Section:%s)",key,section);
 	   		return INI_KEY_NOT_FOUND;
 		}
 		else if(sectionid > -1)
@@ -2341,24 +2533,24 @@ stock INI::GetKeyID(INI:filehandle,const key[],const section[]="",sectionid=-1,s
 				{
 				    new str[INI_MAX_FILE_NAME_LENGTH];
 				    strunpack(str,INI_File[_:filehandle][E_INI_FILE_filename]);
-				    INI_Error("[INI]ReadString:Failed to parse file(%s)>>Read Failed",str);
+				    INI_Error(filehandle,"[INI]ReadString:Failed to parse file(%s)>>Read Failed",str);
 					return INI_ERR_PARSING_FAILED;
 				}
 		  	if(sectionid >= INI_File[_:filehandle][E_INI_FILE_LoadedSections])
 		    {
-		        INI_Error("[INI]GetKeyID:Invalid Section ID (%d)",sectionid);
+		        INI_Error(filehandle,"[INI]GetKeyID:Invalid Section ID (%d)",sectionid);
 		    	return INI_ERR_INVALID_ID;
 	      	}
 		    new i = INI_Section[INI_MAX_SECTIONS*_:filehandle + sectionid][E_INI_SECTION_keystart];
 			do
 			{
-				if(INI_Key[i][E_INI_KEY_name_size] == key_size)
+				if(INI_Key[i][E_INI_KEY_name][0] == key[0])
 			    {
 			     	if(!strcmp(key,INI_Key[i][E_INI_KEY_name],_INI_CS))
 			     	    return (i-INI_MAX_KEYS*_:filehandle);
 			 	}
 			}while((i = INI_Key[i][E_INI_KEY_next]) != INI_LINKED_LIST_NULL);
-			INI_Notice("[INI]GetKeyID:Key not found (Key:%s Section:%s)",key,section);
+			INI_Notice(filehandle,"[INI]GetKeyID:Key not found (Key:%s Section:%s)",key,section);
 	   		return INI_KEY_NOT_FOUND;
 		}
 		else
@@ -2368,23 +2560,23 @@ stock INI::GetKeyID(INI:filehandle,const key[],const section[]="",sectionid=-1,s
 				{
 				    new str[INI_MAX_FILE_NAME_LENGTH];
 				    strunpack(str,INI_File[_:filehandle][E_INI_FILE_filename]);
-				    INI_Error("[INI]ReadString:Failed to parse file(%s)>>Read Failed",str);
+				    INI_Error(filehandle,"[INI]ReadString:Failed to parse file(%s)>>Read Failed",str);
 					return INI_ERR_PARSING_FAILED;
 				}
 		    new i = INI_Section[INI_MAX_SECTIONS*_:filehandle][E_INI_SECTION_keystart];
 			do
 			{
-				if(INI_Key[i][E_INI_KEY_name_size] == key_size)
+				if(INI_Key[i][E_INI_KEY_name][0] == key[0])
 			    {
 			     	if(!strcmp(key,INI_Key[i][E_INI_KEY_name],_INI_CS))
 			     	    return (i-INI_MAX_KEYS*_:filehandle);
 			 	}
 			}while((i = INI_Key[i][E_INI_KEY_next]) != INI_LINKED_LIST_NULL);
-			INI_Notice("[INI]GetKeyID:Key(%s) not found in global section ",key);
+			INI_Notice(filehandle,"[INI]GetKeyID:Key(%s) not found in global section ",key);
 	    	return INI_KEY_NOT_FOUND;
 		}
 	}
-    INI_Notice("[INI]GetKeyID:Invalid Parameters",key,sectionid);
+    INI_Notice(filehandle,"[INI]GetKeyID:Invalid Parameters",key,sectionid);
 	return INI_KEY_NOT_FOUND;
 }
 /*******************************************************************************************************************************
@@ -2405,8 +2597,8 @@ stock INI::GetKeyID(INI:filehandle,const key[],const section[]="",sectionid=-1,s
 stock INI::GetKeyName(INI:filehandle,result[],keyid,result_size=sizeof(result))
 {
     #if !defined INI_CAREFUL_MODE
-	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error("[INI]GetKeyName:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
-	else { INI_Error("[INI]GetKeyName:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
+	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error(filehandle,"[INI]GetKeyName:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
+	else { INI_Error(filehandle,"[INI]GetKeyName:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
 	#endif
 	if(-1 < keyid < INI_File[_:filehandle][E_INI_FILE_LoadedKeys])
 	{
@@ -2418,7 +2610,7 @@ stock INI::GetKeyName(INI:filehandle,result[],keyid,result_size=sizeof(result))
 			return 0;
 	    }
 	}
-	INI_Error("[INI]GetKeyName:Invalid Key ID (%d)",keyid);
+	INI_Error(filehandle,"[INI]GetKeyName:Invalid Key ID (%d)",keyid);
 	return INI_ERR_INVALID_ID;
 }
 /*******************************************************************************************************************************
@@ -2439,8 +2631,8 @@ stock INI::GetKeyName(INI:filehandle,result[],keyid,result_size=sizeof(result))
 stock INI::GetSectionName(INI:filehandle,result[],sectionid,result_size=sizeof(result))
 {
     #if !defined INI_CAREFUL_MODE
-	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error("[INI]GetSectionName:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
-	else { INI_Error("[INI]GetSectionName:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
+	if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error(filehandle,"[INI]GetSectionName:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
+	else { INI_Error(filehandle,"[INI]GetSectionName:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
 	#endif
 	if(-1 < sectionid < INI_File[_:filehandle][E_INI_FILE_LoadedSections])
 	{
@@ -2452,7 +2644,7 @@ stock INI::GetSectionName(INI:filehandle,result[],sectionid,result_size=sizeof(r
 			return 0;
 	    }
 	}
-	INI_Error("[INI]GetSectionName:Invalid Key ID (%d)",sectionid);
+	INI_Error(filehandle,"[INI]GetSectionName:Invalid Key ID (%d)",sectionid);
 	return INI_ERR_INVALID_ID;
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2471,8 +2663,8 @@ stock INI::GetSectionName(INI:filehandle,result[],sectionid,result_size=sizeof(r
 stock INI::DumpINI(INI:filehandle)
 {
 	#if !defined INI_CAREFUL_MODE
-		if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error("[INI]DumpINI:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
-	    else { INI_Error("[INI]DumpINI:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
+		if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error(filehandle,"[INI]DumpINI:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
+	    else { INI_Error(filehandle,"[INI]DumpINI:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
 	#endif
 
     if(!INI_File[_:filehandle][E_INI_FILE_parsed]) INI::ParseINI(filehandle);
@@ -2481,7 +2673,7 @@ stock INI::DumpINI(INI:filehandle)
 	return 0;
 }
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-static stock ini_internal_CreateSection(INI:filehandle,const section[],section_size=sizeof(section))
+static stock ini_internal_CreateSection(INI:filehandle,const section[])
 {
     new sid,j,i;
     if(INI_File[_:filehandle][E_INI_FILE_lines] < (INI_MAX_LINES-1))
@@ -2492,7 +2684,7 @@ static stock ini_internal_CreateSection(INI:filehandle,const section[],section_s
 	        if(i < j) {	if(INI_Line[i][E_INI_LINE_type] == INI_DEFAULT_FILL)	break;  }
 			else
 			{
-			    INI_Notice("[INI]Could not create section %s>>Maximum line limit reached",section);
+			    INI_Notice(filehandle,"[INI]Could not create section %s>>Maximum line limit reached",section);
 			    return INI_SECTION_CREATE_FAILED;
 			}
 	}
@@ -2505,7 +2697,7 @@ static stock ini_internal_CreateSection(INI:filehandle,const section[],section_s
 	        if(sid < j) { 	if(INI_Section[sid][E_INI_SECTION_sectionid] == INI_DEFAULT_FILL) break; }
 			else
 			{
-			    INI_Notice("[INI]Could not create section %s>>Maximum sections limit reached",section);
+			    INI_Notice(filehandle,"[INI]Could not create section %s>>Maximum sections limit reached",section);
 			    return INI_SECTION_CREATE_FAILED;
 			}
 	}
@@ -2514,7 +2706,6 @@ static stock ini_internal_CreateSection(INI:filehandle,const section[],section_s
    	INI_Section[sid][E_INI_SECTION_lineid] = i;
 
    	format(INI_Section[sid][E_INI_SECTION_name],INI_MAX_SECTION_NAME_LENGTH,"%s",section);
-	INI_Section[sid][E_INI_SECTION_name_size] = section_size-1;
 
 	INI_Line[i][E_INI_LINE_type] = INI_LINE_SECTION_TAG;
 	INI_Line[i][E_INI_LINE_id] = sid;
@@ -2529,10 +2720,10 @@ static stock ini_internal_CreateSection(INI:filehandle,const section[],section_s
 	INI_Line[j][E_INI_LINE_previous] = i;
 	return sid;
 }
-static stock ini_internal_CreateKey(INI:filehandle,const key[],const value[],sectionid,key_size=sizeof(key))
+static stock ini_internal_CreateKey(INI:filehandle,const key[],const value[],sectionid)
 {
     new kid,j,i;
-  
+
     if(INI_File[_:filehandle][E_INI_FILE_lines] < (INI_MAX_LINES-1))
 	    i = INI_MAX_LINES*_:filehandle + ++INI_File[_:filehandle][E_INI_FILE_lines];
 	else
@@ -2541,7 +2732,7 @@ static stock ini_internal_CreateKey(INI:filehandle,const key[],const value[],sec
 	        if(i < j)	{	if(INI_Line[i][E_INI_LINE_type] == INI_DEFAULT_FILL) break; }
 			else
 			{
-			    INI_Notice("[INI]Could not create key %s>>Maximum line limit reached",key);
+			    INI_Notice(filehandle,"[INI]Could not create key %s>>Maximum line limit reached",key);
 			    return INI_KEY_CREATE_FAILED;
 			}
 	}
@@ -2553,7 +2744,7 @@ static stock ini_internal_CreateKey(INI:filehandle,const key[],const value[],sec
 	        if(kid < j) {	if(INI_Key[kid][E_INI_KEY_sectionid] == INI_DEFAULT_FILL) break; }
 			else
 			{
-			    INI_Notice("[INI]Could not create key %s>>Maximum keys limit reached",key);
+			    INI_Notice(filehandle,"[INI]Could not create key %s>>Maximum keys limit reached",key);
 			    return INI_KEY_CREATE_FAILED;
 			}
 	}
@@ -2562,13 +2753,12 @@ static stock ini_internal_CreateKey(INI:filehandle,const key[],const value[],sec
 
 	format(INI_Key[kid][E_INI_KEY_name],INI_MAX_KEY_NAME_LENGTH,"%s",key);
 	format(INI_Key[kid][E_INI_KEY_value],INI_MAX_KEY_VALUE_LENGTH,"%s",value);
-	INI_Key[kid][E_INI_KEY_name_size] = key_size;
 
 	if(sectionid == 0)
 	    INI_Line[i][E_INI_LINE_type] = INI_LINE_GLOBAL_KEY;
 	else
 		INI_Line[i][E_INI_LINE_type] = INI_LINE_SECTION_KEY;
-		
+
 	INI_Line[i][E_INI_LINE_id] = kid;
 
 	format(INI_Line[i][E_INI_LINE_Content],INI_MAX_LINE_LENGTH,"%s=%s\r\n",key,value);
