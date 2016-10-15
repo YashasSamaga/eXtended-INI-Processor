@@ -239,7 +239,11 @@
 #define INI_DEFAULT_FILL -1
 #define INI_LINKED_LIST_NULL -1
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#define INI_LOG_FILE "eini_log.txt"
+#if defined USE_FILE_MANAGER_PLUGIN
+	#define INI_LOG_FILE "scriptfiles/eini_log.txt"
+#else
+	#define INI_LOG_FILE "eini_log.txt"
+#endif
 #define DEFAULT_INVALID_HANDLE INI:-4081998
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #define eINI_IsValidHandle(%0) (INI:INI_MAX_MULTI_FILES > %0 > INI:-1)
@@ -304,9 +308,11 @@ stock _INI_Log(INI:handle, fstring[], {Float, _}:...)
 
     static const STATIC_ARGS = 2;
     new n = (numargs() - STATIC_ARGS) * BYTES_PER_CELL;
-
+#if defined USE_FILE_MANAGER_PLUGIN
+    new File:LogFile = f_open(INI_LOG_FILE,"a");
+#else
     new File:LogFile = fopen(INI_LOG_FILE,io_append);
-
+#endif
     if(n)
     {
         new message[256],arg_start,arg_end;
@@ -347,8 +353,13 @@ stock _INI_Log(INI:handle, fstring[], {Float, _}:...)
             gettime(hr,mins,sec);
             getdate(year,month,day);
             format(str,sizeof(str),"[%i:%i:%i][%i:%i:%i]%s\r\n",day,month,year,hr,mins,sec,message);
+#if defined USE_FILE_MANAGER_PLUGIN
+            f_write(LogFile,str);
+            f_close(LogFile);
+#else
             fwrite(LogFile,str);
             fclose(LogFile);
+#endif
         }
         else
         {
@@ -455,8 +466,14 @@ stock intrl_EINI_HexadecimalToDecimal(const str[])
 *******************************************************************************************************************************/
 stock INI:INI::CreateINI(const fname[])
 {
+#if defined USE_FILE_MANAGER_PLUGIN
+	static j,tmp, file[INI_MAX_FILE_NAME_LENGTH + 11];
+	format(file, sizeof(file), "scriptfiles\\%s", fname);
+	if(file_exists(file))
+#else
 	static j,tmp;
 	if(fexist(fname))
+#endif
 	{
 	    INI_Error(DEFAULT_INVALID_HANDLE,"[INI]CreateINI:File already exists(%s)",fname);
 	    return INI:INI_ERR_FILE_ALREADY_EXISTS;
@@ -510,8 +527,14 @@ stock INI:INI::CreateINI(const fname[])
 *******************************************************************************************************************************/
 stock INI:INI::OpenINI(const fname[],mode=INI_READ_WRITE)
 {
+#if defined USE_FILE_MANAGER_PLUGIN
+	static j,tmp, file[INI_MAX_FILE_NAME_LENGTH + 11];
+	format(file, sizeof(file), "scriptfiles\\%s", fname);
+	if(!file_exists(file))
+#else
 	static j,tmp;
-    if(!fexist(fname))
+	if(!fexist(fname))
+#endif
     {
      	INI_Error(INI:DEFAULT_INVALID_HANDLE,"[INI]OpenINI:File doesn't exist (%s)",fname);
         return INI:INI_ERR_FILE_DOES_NOT_EXIST;
@@ -586,6 +609,37 @@ stock INI::CloseINI(INI:filehandle,bool:savebuffer=true)
  	return 0;
 }
 /*******************************************************************************************************************************
+	<summary>ForceINI</summary>
+	<para>Opens an INI</para>
+	<param name="fname">Location of the file to open or create</param>
+	<param name="mode">Depending on the file usage, the mode is set(INI_READ_WRITE/INI_WRITE/INI_READ)</param>
+	<returns>
+		Returns INI Handle on success or an error code if failed
+		(INI_ERR_MAX_FILE_LIMIT/INI_ERR_FILE_DOES_NOT_EXIST)
+	</returns>
+	<remarks>
+	    The location of the file to be opened should be relative to the scriptfiles folder
+	</remarks>
+	<example>
+	    <code>
+	    	ForceINI("config\\new_file.ini"); //Opens or create a file from scriptfiles\config\new_file.ini
+		</code>
+	</example>
+*******************************************************************************************************************************/
+stock INI:INI::ForceINI(const fname[],mode=INI_READ_WRITE)
+{
+#if defined USE_FILE_MANAGER_PLUGIN
+	static file[INI_MAX_FILE_NAME_LENGTH + 11];
+	format(file, sizeof(file), "scriptfiles\\%s", fname);
+	if(file_exists(file))
+#else
+	if(fexist(fname))
+#endif
+     	return INI::OpenINI(fname,mode);
+    else
+    	return INI::CreateINI(fname);
+}
+/*******************************************************************************************************************************
 	<summary>WriteBuffer</summary>
 	<para>When any changes are made to the INI ,the file is not updated automatically until CloseINI is called.WriteBuffer
 	forcefully updates the file.</para>
@@ -609,12 +663,18 @@ stock INI::WriteBuffer(INI:filehandle)
 		if(INI:-1 < filehandle < INI:INI_MAX_MULTI_FILES) { if(!IsFileHandleInUse(_:filehandle)){ INI_Error(filehandle,"[INI]WriteBuffer:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; } }
 	    else { INI_Error(filehandle,"[INI]WriteBuffer:Invalid File Handle ID (%d)",_:filehandle); return INI_ERR_INVALID_HANDLE; }
 	#endif
+#if defined USE_FILE_MANAGER_PLUGIN
+ 	new str[INI_MAX_FILE_NAME_LENGTH + 11];
+    new File:wfile;
 
+    strunpack(str,INI_File[_:filehandle][E_INI_FILE_filename]);
+    strins(str, "scriptfiles/", 0);
+#else
  	new str[INI_MAX_FILE_NAME_LENGTH];
     new File:wfile;
 
     strunpack(str,INI_File[_:filehandle][E_INI_FILE_filename]);
-
+#endif
     if(!INI_File[_:filehandle][E_INI_FILE_parsed])
 		if(INI::ParseINI(filehandle))
 		{
@@ -627,9 +687,18 @@ stock INI::WriteBuffer(INI:filehandle)
         case INI_READ:	return 0;
 	    case INI_WRITE_NEW:
      	{
+#if defined USE_FILE_MANAGER_PLUGIN
+     	    if(file_exists(str))
+    			file_delete(str);
+#else
      	    if(fexist(str))
     			fremove(str);
+#endif
+#if defined USE_FILE_MANAGER_PLUGIN
+     	    if(!(wfile = f_open(str,"w")))
+#else
      	    if(!(wfile = fopen(str,io_write)))
+#endif
 			{
                 INI_Error(filehandle,"[INI]WriteBuffer:Failed to create file(%s)",str);
 				return INI_ERR_FILE_CREATION_FAILED;
@@ -637,9 +706,18 @@ stock INI::WriteBuffer(INI:filehandle)
 	    }
 	    default:
     	{
+#if defined USE_FILE_MANAGER_PLUGIN
+    	    if(file_exists(str))
+    			file_delete(str);
+#else
     	    if(fexist(str))
     			fremove(str);
-			if(!(wfile = fopen(str,io_write)))
+#endif
+#if defined USE_FILE_MANAGER_PLUGIN
+     	    if(!(wfile = f_open(str,"w")))
+#else
+     	    if(!(wfile = fopen(str,io_write)))
+#endif
 			{
                 INI_Error(filehandle,"[INI]WriteBuffer:Failed to open file(%s) for writing.",str);
 				return INI_ERR_FAILED_TO_OPEN;
@@ -647,9 +725,13 @@ stock INI::WriteBuffer(INI:filehandle)
 	   	}
 	}
 	for(new i = INI_File[_:filehandle][E_INI_FILE_start_lineid];INI_Line[i][E_INI_LINE_type] != INI_LINE_EOF;i = INI_Line[i][E_INI_LINE_next])
+#if defined USE_FILE_MANAGER_PLUGIN
+		f_write(wfile,INI_Line[i][E_INI_LINE_Content]);
+	f_close(wfile);
+#else
 		fwrite(wfile,INI_Line[i][E_INI_LINE_Content]);
-
 	fclose(wfile);
+#endif
 	return 0;
 }
 /*******************************************************************************************************************************
@@ -720,15 +802,23 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 	    default:
 	    {
 	        strunpack(line,INI_File[_:filehandle][E_INI_FILE_filename]);
-	        if(!(rfile = fopen(line,io_read)))
+#if defined USE_FILE_MANAGER_PLUGIN
+	        strins(line, "scriptfiles/", 0);
+     	    if(!(rfile = f_open(line,"r")))
+#else
+     	    if(!(rfile = fopen(line,io_read)))
+#endif
 			{
 			    INI_Error(filehandle,"[INI]ParseINI:Failed to open file(%s) for reading.",line);
 				return INI_ERR_FAILED_TO_OPEN;
 			}
 	    }
 	}
-
+#if defined USE_FILE_MANAGER_PLUGIN
+	while((len = f_read(rfile,line)))
+#else
 	while((len = fread(rfile,line)))
+#endif
 	{
 		for(new i = 0;;i++)
 		{
@@ -749,7 +839,11 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 					            strunpack(line,INI_File[_:filehandle][E_INI_FILE_filename]);
 							  	INI_Error(filehandle,"[INI]Parser:Syntax Error in line %d in %s >> empty section",LineID + 1 - INI_MAX_LINES*_:filehandle,line);
 							  	INI::CloseINI(filehandle,false);
+#if defined USE_FILE_MANAGER_PLUGIN
+							  	f_close(rfile);
+#else
 							  	fclose(rfile);
+#endif
 							  	return INI_ERR_SYNTAX;
 							  	#endif
 					        }
@@ -801,7 +895,11 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 	          			            strunpack(line,INI_File[_:filehandle][E_INI_FILE_filename]);
 									INI_Error(filehandle,"[INI]Parser:Syntax Error in line %d in %s >> whitespace found in section name",LineID+1 - INI_MAX_LINES*_:filehandle,line);
 									INI::CloseINI(filehandle,false);
+#if defined USE_FILE_MANAGER_PLUGIN
+									f_close(rfile);
+#else
 									fclose(rfile);
+#endif
 									return INI_ERR_SYNTAX;
 									#endif
 								}
@@ -835,7 +933,11 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
           			            strunpack(line,INI_File[_:filehandle][E_INI_FILE_filename]);
 								INI_Error(filehandle,"[INI]Parser:Syntax Error in line %d in %s >> non-terminated section tag",LineID+1 - INI_MAX_LINES*_:filehandle,line);
 								INI::CloseINI(filehandle,false);
+#if defined USE_FILE_MANAGER_PLUGIN
+								f_close(rfile);
+#else
 								fclose(rfile);
+#endif
 								return INI_ERR_SYNTAX;
 								#endif
           			        }
@@ -847,7 +949,11 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
           			            strunpack(line,INI_File[_:filehandle][E_INI_FILE_filename]);
 								INI_Error(filehandle,"[INI]Parser:Syntax Error in line %d in %s >>  invalid character",LineID + 1 - INI_MAX_LINES*_:filehandle,line);
 								INI::CloseINI(filehandle,false);
+#if defined USE_FILE_MANAGER_PLUGIN
+								f_close(rfile);
+#else
 								fclose(rfile);
+#endif
 								return INI_ERR_SYNTAX;
 								#endif
           			        }
@@ -934,7 +1040,11 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 	          			            strunpack(line,INI_File[_:filehandle][E_INI_FILE_filename]);
 									INI_Error(filehandle,"[INI]Parser:Syntax Error in line %d in %s >> whitespace found in key name",LineID+1 - INI_MAX_LINES*_:filehandle,line);
 									INI::CloseINI(filehandle,false);
+#if defined USE_FILE_MANAGER_PLUGIN
+									f_close(rfile);
+#else
 									fclose(rfile);
+#endif
 									return INI_ERR_SYNTAX;
 									#endif
 								}
@@ -970,7 +1080,11 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
           			            strunpack(line,INI_File[_:filehandle][E_INI_FILE_filename]);
 								INI_Error(filehandle,"[INI]Parser:Syntax Error in line %d in %s >> invalid line",LineID+1 - INI_MAX_LINES*_:filehandle,line);
 								INI::CloseINI(filehandle,false);
+#if defined USE_FILE_MANAGER_PLUGIN
+								f_close(rfile);
+#else
 								fclose(rfile);
+#endif
 								return INI_ERR_SYNTAX;
 								#endif
 						    }
@@ -982,7 +1096,11 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
           			            strunpack(line,INI_File[_:filehandle][E_INI_FILE_filename]);
 								INI_Error(filehandle,"[INI]Parser:Syntax Error in line %d in %s >>  invalid character in key name",LineID + 1 - INI_MAX_LINES*_:filehandle,line);
 								INI::CloseINI(filehandle,false);
+#if defined USE_FILE_MANAGER_PLUGIN
+								f_close(rfile);
+#else
 								fclose(rfile);
+#endif
 								return INI_ERR_SYNTAX;
 								#endif
 						    }
@@ -1165,7 +1283,11 @@ stock INI::ParseINI(INI:filehandle,const LoadFunction[] = "",bool:dynamic=false,
 		INI_Line[LineID][E_INI_LINE_next] = ++LineID;
 		INI_Line[LineID][E_INI_LINE_previous] = LineID-1;
 	}
+#if defined USE_FILE_MANAGER_PLUGIN
+	f_close(rfile);
+#else
 	fclose(rfile);
+#endif
 
 	if((INI_File[_:filehandle][E_INI_FILE_LoadedKeys] = KeyID))
 		INI_Key[INI_MAX_KEYS*_:filehandle + KeyID - 1][E_INI_KEY_next] = INI_LINKED_LIST_NULL;
@@ -1652,7 +1774,7 @@ stock INI::ReadArray(INI:filehandle,array[],const key[],const section[]="",keyid
 	INI::ReadArray(handle,arr,"","",1); //Gets the value of key with keyid 1
 	</example>
 *******************************************************************************************************************************/
-#define INI_ReadEnum(%0,%1,%2,%3,%4,%5,%6,%7,%8,%9) ReadArray(%0,%1,%3,%4,%5,%6,%7,%2,%8,%9)
+#define ReadEnum(%0,%1,%2,%3,%4,%5,%6,%7,%8,%9) ReadArray(%0,%1,%3,%4,%5,%6,%7,%2,%8,%9)
 /*******************************************************************************************************************************
 	<summary>ReadFormat</summary>
  	<para>Reads multiple values and stores in the variables given</para>
@@ -2218,7 +2340,7 @@ stock INI::WriteArray(INI:filehandle,array[],const key[]="",const section[]="",k
 	INI::WriteEnum(handle,arr[4],sizeof(arr[]),"","",1); //Gets the value of key with keyid 1
 	</example>
 *******************************************************************************************************************************/
-#define ReadEnum(%0,%1,%2,%3,%4,%5,%6,%7,%8,%9) ReadArray(%0,%1,%3,%4,%5,%6,%7,%2,%8,%9)
+#define WriteEnum(%0,%1,%2,%3,%4,%5,%6,%7,%8,%9) ReadArray(%0,%1,%3,%4,%5,%6,%7,%2,%8,%9)
 /*******************************************************************************************************************************
 	<summary>WriteFormat</summary>
  	<para>Reads multiple values and stores in the variables given</para>
