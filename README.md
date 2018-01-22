@@ -1,4 +1,7 @@
 # eXtended-INI-Processor
+
+## This repository is no longer being maintained.
+
 Fast,simple,unique,versatile,feature rich,user friendly INI Processor for SAMP
 
 SAMP Include Thread: http://forum.sa-mp.com/showthread.php?t=573490
